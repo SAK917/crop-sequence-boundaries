@@ -118,7 +118,8 @@ def csb_process(start_year, end_year, area):
             error_msg = arcpy.GetMessage(0)
             logger.error(error_msg)
             f = open(error_path, "a")
-            f.write("".join(str(item) for item in error_msg))
+            # f.write("".join(str(item) for item in error_msg))
+            f.write(str(error_msg))
             f.close()
             sys.exit(0)
 
@@ -517,6 +518,12 @@ def chunks(l, n):
         yield l[item : item + n]
 
 
+def sort_key(file_name: str) -> tuple[str, int]:
+    """Sorts list of files to process"""
+    name_parts = file_name.split("_")
+    return (name_parts[0], int(name_parts[1]))
+
+
 if __name__ == "__main__":
     # Get Creation and Split_raster paths from csb-default.ini
     cfg = utils.GetConfig("default")
@@ -525,7 +532,8 @@ if __name__ == "__main__":
     # get list of area files
     file_obj = Path(f"{split_rasters}/{start_year}/").rglob("*.tif")
     file_lst = [str(x).split(f"{start_year}")[1][1:-1] for x in file_obj]
-    print(len(file_lst))
+    file_lst.sort(key=sort_key)
+    print(f"{len(file_lst)} split raster files to process.")
 
     # delete old files from previous run if doing partial run
     if partial_area != "None":
