@@ -19,6 +19,7 @@ import utils  # pylint: disable=import-error
 # load ArcGIS packages, keep trying until it works (concurrent license problem)
 # Disable VS Code Pylance warnings that arcpy may be unbound due to import being in the try block
 # pyright: reportUnboundVariable=false
+# pyright: reportOptionalMemberAccess=false
 arcpy_loaded = False
 while not arcpy_loaded:
     try:
@@ -130,10 +131,10 @@ def csb_process(start_year, end_year, area):
     # cdl_lst = [path for path in year_file_lst]
     # input_path = ";".join(cdl_lst)
     output_path = f"{creation_dir}/CombineALL/{area}_{start_year}-{end_year}.tif"
-    arcpy.gp.Combine_sa(year_file_lst, output_path)
+    arcpy.gp.Combine_sa(year_file_lst, output_path) # type: ignore
     logger.info(f"{area}: Combine Done, Adding Field")
 
-    column_list = [field.name for field in arcpy.ListFields(output_path)]
+    column_list = [field.name for field in arcpy.ListFields(output_path)] # type: ignore
     while "COUNT0" not in column_list:
         try:
             arcpy.AddField_management(
@@ -148,7 +149,7 @@ def csb_process(start_year, end_year, area):
                 field_is_required="NON_REQUIRED",
                 field_domain="",
             )
-            column_list = [field.name for field in arcpy.ListFields(output_path)]
+            column_list = [field.name for field in arcpy.ListFields(output_path)] # type: ignore
 
         except Exception as e:
             error_msg = e.args
@@ -171,13 +172,13 @@ def csb_process(start_year, end_year, area):
                 field_is_required="NON_REQUIRED",
                 field_domain="",
             )
-            column_list = [i.name for i in arcpy.ListFields(output_path)]
+            column_list = [i.name for i in arcpy.ListFields(output_path)] # type: ignore
 
         except:
             error_msg = arcpy.GetMessage(0)
             logger.error(error_msg)
             f = open(error_path, "a")
-            f.write("".join(str(item) for item in error_msg))
+            f.write("".join(str(item) for item in error_msg)) # type: ignore
             f.close()
             time.sleep(2)
             print(f"{area}: try again add field")
@@ -194,7 +195,7 @@ def csb_process(start_year, end_year, area):
                 field_is_required="NON_REQUIRED",
                 field_domain="",
             )
-            column_list = [i.name for i in arcpy.ListFields(output_path)]
+            column_list = [i.name for i in arcpy.ListFields(output_path)] # type: ignore
 
     # generate experession string
     logger.info(f"{area}_{year}: Calculate Field")
@@ -220,7 +221,7 @@ def csb_process(start_year, end_year, area):
         error_msg = arcpy.GetMessage(0)
         logger.error(error_msg)
         f = open(error_path, "a")
-        f.write("".join(str(item) for item in error_msg))
+        f.write("".join(str(item) for item in error_msg)) # type: ignore
         f.write(r"/n")
         f.close()
         sys.exit(0)
@@ -229,7 +230,7 @@ def csb_process(start_year, end_year, area):
     logger.info(f"{area}_{year}: Start SetNull")
     print(f"{area}: Creating Null mask for pixels with < 1.1 years of data...")
     setnull_path = f"{creation_dir}/Combine/{area}_{start_year}-{end_year}_NULL.tif"
-    arcpy.gp.SetNull_sa(output_path, output_path, setnull_path, '"COUNT0" < 1.1')
+    arcpy.gp.SetNull_sa(output_path, output_path, setnull_path, '"COUNT0" < 1.1') # type: ignore
 
     # Convert Raster to Vector
     logger.info(f"{area}_{year}: Convert Raster to Vector")
@@ -297,7 +298,7 @@ def csb_process(start_year, end_year, area):
             error_msg = arcpy.GetMessage(0)
             logger.error(error_msg)
             f = open(error_path, "a")
-            f.write("".join(str(item) for item in error_msg))
+            f.write("".join(str(item) for item in error_msg)) # type: ignore
             f.write(r"/n")
             f.close()
             sys.exit(0)
@@ -479,11 +480,11 @@ def FeatureClassGenerator(workspace, wild_card, feature_type, recursive):
         dataset_list = [""]
         if recursive:
             datasets = arcpy.ListDatasets()
-            dataset_list.extend(datasets)
+            dataset_list.extend(datasets) # type: ignore
 
         for dataset in dataset_list:
             featureclasses = arcpy.ListFeatureClasses(wild_card, feature_type, dataset)
-            for fc in featureclasses:
+            for fc in featureclasses: # type: ignore
                 yield os.path.join(workspace, dataset, fc), fc
 
 
@@ -496,12 +497,12 @@ def RepairTopology(in_gdb, temp_gdb, area, area_logger):
         temp_gdb (str): path to temp gdb
         area (str): area name
         area_logger (logger): logger for the area"""
-    arcpy.env.workspace = temp_gdb
+    arcpy.env.workspace = temp_gdb # type: ignore
     temp_featureclasses = arcpy.ListFeatureClasses()
 
     # find the area that doesn't have 3 FCs in temp (eg one that failed)
     area_featureclasses = []
-    for fc in temp_featureclasses:
+    for fc in temp_featureclasses: # type: ignore
         split_fc = fc.split("_")
         new_fc = f"{split_fc[0]}_{split_fc[1]}"
         area_featureclasses.append(new_fc)
