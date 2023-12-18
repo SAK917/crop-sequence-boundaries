@@ -237,7 +237,7 @@ def csb_process(start_year, end_year, area):
     arcpy.RasterToPolygon_conversion(
         in_raster=setnull_path,
         out_polygon_features=out_feature_ll,
-        simplify="SIMPLIFY",
+        simplify="NO_SIMPLIFY",
         raster_field="Value",
         create_multipart_features="SINGLE_OUTER_PART",
         max_vertices_per_feature="",
