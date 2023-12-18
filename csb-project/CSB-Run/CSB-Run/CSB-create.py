@@ -36,12 +36,6 @@ while not arcpy_loaded:
         time.sleep(1)
 
 
-# command line inputs passed by CSB-Run
-start_year = sys.argv[1]
-end_year = sys.argv[2]
-creation_dir = sys.argv[3]  # create_1421_20220511_1
-partial_area = sys.argv[4]  # partial run area e.g. G9 or 'None'
-
 # projection
 COORDINATE_STRING = r'PROJCS["USA_Contiguous_Albers_Equal_Area_Conic_USGS_version",GEOGCS["GCS_North_American_1983",DATUM["D_North_American_1983",SPHEROID["GRS_1980",6378137.0,298.257222101]],PRIMEM["Greenwich",0.0],UNIT["Degree",0.0174532925199433]],PROJECTION["Albers"],PARAMETER["False_Easting",0.0],PARAMETER["False_Northing",0.0],PARAMETER["Central_Meridian",-96.0],PARAMETER["Standard_Parallel_1",29.5],PARAMETER["Standard_Parallel_2",45.5],PARAMETER["Latitude_Of_Origin",23.0],UNIT["Meter",1.0]]'
 
@@ -49,7 +43,7 @@ COORDINATE_STRING = r'PROJCS["USA_Contiguous_Albers_Equal_Area_Conic_USGS_versio
 OUTPUT_COORDINATE_SYSTEM_2_ = 'PROJCS["Albers_Conic_Equal_Area",GEOGCS["GCS_North_American_1983",DATUM["D_North_American_1983",SPHEROID["GRS_1980",6378137.0,298.257222101]],PRIMEM["Greenwich",0.0],UNIT["Degree",0.0174532925199433]],PROJECTION["Albers"],PARAMETER["false_easting",0.0],PARAMETER["false_northing",0.0],PARAMETER["central_meridian",-96.0],PARAMETER["standard_parallel_1",29.5],PARAMETER["standard_parallel_2",45.5],PARAMETER["latitude_of_origin",23.0],UNIT["Meter",1.0]]'
 
 
-def csb_process(start_year, end_year, area):
+def csb_process(start_year, end_year, area, creation_dir):
     """Main function that creates CSB datasets, performs elimination, run using multiprocessing"""
     # Get config items, configure logger
     cfg = utils.GetConfig("default")
@@ -234,6 +228,7 @@ def csb_process(start_year, end_year, area):
 
     # Convert Raster to Vector
     logger.info(f"{area}_{year}: Convert Raster to Vector")
+    print(f"{area}: Converting raster to vector polygons...")
     out_feature_ll = f"{creation_dir}/Vectors_LL/{area}_{start_year}-{end_year}.gdb/{area}_{year}_In"
     arcpy.RasterToPolygon_conversion(
         in_raster=setnull_path,
@@ -245,6 +240,7 @@ def csb_process(start_year, end_year, area):
     )
 
     logger.info(f"{area}_{year}: Projection")
+    print(f"{area}: Projecting vector polygons to Albers projection...")
     out_feature_in = f"{creation_dir}/Vectors_In/{area}_{start_year}-{end_year}_In.gdb/{area}_{year}_In"
     arcpy.management.Project(
         in_dataset=out_feature_ll,
@@ -542,6 +538,12 @@ def sort_key(file_name: str) -> tuple[str, int]:
 
 
 def main():
+    # command line inputs passed by CSB-Run
+    start_year = sys.argv[1]
+    end_year = sys.argv[2]
+    creation_dir = sys.argv[3]  # create_1421_20220511_1
+    partial_area = sys.argv[4]  # partial run area e.g. G9 or 'None'
+
     # Get Creation and Split_raster paths from csb-default.ini
     cfg = utils.GetConfig("default")
     split_rasters = f'{cfg["folders"]["split_rasters"]}'
@@ -563,7 +565,7 @@ def main():
     # Kick off multiple instances of CSB_Process by area
     processes = []
     for area in np.unique(file_lst):
-        p = multiprocessing.Process(target=csb_process, args=[start_year, end_year, area])
+        p = multiprocessing.Process(target=csb_process, args=[start_year, end_year, area, creation_dir])
         processes.append(p)
 
     # get number of CPUs to use in run
