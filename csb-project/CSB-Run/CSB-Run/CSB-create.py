@@ -6,6 +6,7 @@ import multiprocessing
 from pathlib import Path
 import operator as op
 import os
+import re
 import sys
 import time
 
@@ -48,7 +49,7 @@ OUTPUT_COORDINATE_SYSTEM_2_ = 'PROJCS["Albers_Conic_Equal_Area",GEOGCS["GCS_Nort
 
 
 def csb_process(start_year, end_year, area):
-    """Main function that creates CSB datasets, performs elimination,run using multiprocessing"""
+    """Main function that creates CSB datasets, performs elimination, run using multiprocessing"""
     # Get config items, configure logger
     cfg = utils.GetConfig("default")
 
@@ -70,14 +71,14 @@ def csb_process(start_year, end_year, area):
     # get file name for same area across different years
     year_file_lst = []
     for year in year_lst:
-        file_path = f'{cfg["folders"]["split_rasters"]}/{year}/'
-        file_obj = Path(file_path).rglob(f"{area}_{year}*.tif")
-        file_lst = [str(x) for x in file_obj]
-        sort_file_lst = []
-        for year in range(len(file_lst)):
-            path = f"{file_path}/{area}_{year}_{year}.TIF"
-            sort_file_lst.append(path)
-        year_file_lst.append(sort_file_lst)
+        file_path = f'{cfg["folders"]["split_rasters"]}/{year}/{area}_{year}.TIF'
+        # file_obj = Path(file_path).rglob(f"{area}_{year}*.tif")
+        # file_lst = [str(x) for x in file_obj]
+        # sort_file_lst = []
+        # for item in range(len(file_lst)):
+        #     path = f"{file_path}/{area}_{year}_{item}.TIF"
+        #     sort_file_lst.append(path)
+        year_file_lst.append(file_path)
 
     gdb_created = False
     while not gdb_created:
@@ -125,134 +126,135 @@ def csb_process(start_year, end_year, area):
 
     print(f"{area}: Start Combine")
     logger.info(f"{area}: Start Combine")
-    for year in range(len(file_lst)):
-        lst = [j[year] for j in year_file_lst]
-        input_path = ";".join(lst)
-        output_path = f"{creation_dir}/CombineALL/{area}_{year}_{start_year}-{end_year}.tif"
-        arcpy.gp.Combine_sa(input_path, output_path)
-        logger.info(f"{area}_{year}: Combine Done, Adding Field")
+    # for item in range(len(file_lst)):
+    # cdl_lst = [path for path in year_file_lst]
+    # input_path = ";".join(cdl_lst)
+    output_path = f"{creation_dir}/CombineALL/{area}_{start_year}-{end_year}.tif"
+    arcpy.gp.Combine_sa(year_file_lst, output_path)
+    logger.info(f"{area}: Combine Done, Adding Field")
 
-        column_list = [field.name for field in arcpy.ListFields(output_path)]
-        while "COUNT0" not in column_list:
-            try:
-                arcpy.AddField_management(
-                    in_table=output_path,
-                    field_name="COUNT0",
-                    field_type="SHORT",
-                    field_precision="",
-                    field_scale="",
-                    field_length="",
-                    field_alias="",
-                    field_is_nullable="NON_NULLABLE",
-                    field_is_required="NON_REQUIRED",
-                    field_domain="",
-                )
-                column_list = [field.name for field in arcpy.ListFields(output_path)]
-
-            except Exception as e:
-                error_msg = e.args
-                logger.error(error_msg)
-                f = open(error_path, "a")
-                f.write("".join(str(item) for item in error_msg))
-                f.close()
-                time.sleep(2)
-                print(f"{area}: try again add field")
-                logger.info(f"{area}: try again add field")
-                arcpy.AddField_management(
-                    in_table=output_path,
-                    field_name="COUNT0",
-                    field_type="SHORT",
-                    field_precision="",
-                    field_scale="",
-                    field_length="",
-                    field_alias="",
-                    field_is_nullable="NON_NULLABLE",
-                    field_is_required="NON_REQUIRED",
-                    field_domain="",
-                )
-                column_list = [i.name for i in arcpy.ListFields(output_path)]
-
-            except:
-                error_msg = arcpy.GetMessage(0)
-                logger.error(error_msg)
-                f = open(error_path, "a")
-                f.write("".join(str(item) for item in error_msg))
-                f.close()
-                time.sleep(2)
-                print(f"{area}: try again add field")
-                logger.info(f"{area} try again add field")
-                arcpy.AddField_management(
-                    in_table=output_path,
-                    field_name="COUNT0",
-                    field_type="SHORT",
-                    field_precision="",
-                    field_scale="",
-                    field_length="",
-                    field_alias="",
-                    field_is_nullable="NON_NULLABLE",
-                    field_is_required="NON_REQUIRED",
-                    field_domain="",
-                )
-                column_list = [i.name for i in arcpy.ListFields(output_path)]
-
-        # generate experession string
-        logger.info(f"{area}_{year}: Calculate Field")
-        calculate_field_lst = [r"!" + f"{area}_{j}_{year}"[0:10] + r"!" for j in year_lst]
-        cal_expression = f"CountFieldsGreaterThanZero([{','.join(calculate_field_lst)}])"
-        code = "def CountFieldsGreaterThanZero(fieldList): \n  counter = 0 \n  for field in fieldList: \n    if field > 0: \n      counter += 1 \n  return counter"
+    column_list = [field.name for field in arcpy.ListFields(output_path)]
+    while "COUNT0" not in column_list:
         try:
-            arcpy.CalculateField_management(
+            arcpy.AddField_management(
                 in_table=output_path,
-                field="COUNT0",
-                expression=cal_expression,
-                code_block=code,
+                field_name="COUNT0",
+                field_type="SHORT",
+                field_precision="",
+                field_scale="",
+                field_length="",
+                field_alias="",
+                field_is_nullable="NON_NULLABLE",
+                field_is_required="NON_REQUIRED",
+                field_domain="",
             )
+            column_list = [field.name for field in arcpy.ListFields(output_path)]
+
         except Exception as e:
             error_msg = e.args
             logger.error(error_msg)
             f = open(error_path, "a")
             f.write("".join(str(item) for item in error_msg))
-            f.write(r"/n")
             f.close()
-            sys.exit(0)
+            time.sleep(2)
+            print(f"{area}: try again add field")
+            logger.info(f"{area}: try again add field")
+            arcpy.AddField_management(
+                in_table=output_path,
+                field_name="COUNT0",
+                field_type="SHORT",
+                field_precision="",
+                field_scale="",
+                field_length="",
+                field_alias="",
+                field_is_nullable="NON_NULLABLE",
+                field_is_required="NON_REQUIRED",
+                field_domain="",
+            )
+            column_list = [i.name for i in arcpy.ListFields(output_path)]
+
         except:
             error_msg = arcpy.GetMessage(0)
             logger.error(error_msg)
             f = open(error_path, "a")
             f.write("".join(str(item) for item in error_msg))
-            f.write(r"/n")
             f.close()
-            sys.exit(0)
+            time.sleep(2)
+            print(f"{area}: try again add field")
+            logger.info(f"{area} try again add field")
+            arcpy.AddField_management(
+                in_table=output_path,
+                field_name="COUNT0",
+                field_type="SHORT",
+                field_precision="",
+                field_scale="",
+                field_length="",
+                field_alias="",
+                field_is_nullable="NON_NULLABLE",
+                field_is_required="NON_REQUIRED",
+                field_domain="",
+            )
+            column_list = [i.name for i in arcpy.ListFields(output_path)]
 
-        # Start SetNull
-        logger.info(f"{area}_{year}: Start SetNull")
-        setnull_path = f"{creation_dir}/Combine/{area}_{year}_{start_year}-{end_year}_NULL.tif"
-        arcpy.gp.SetNull_sa(output_path, output_path, setnull_path, '"COUNT0" < 1.1')
-
-        # Convert Raster to Vector
-        logger.info(f"{area}_{year}: Convert Raster to Vector")
-        out_feature_ll = f"{creation_dir}/Vectors_LL/{area}_{start_year}-{end_year}.gdb/{area}_{year}_In"
-        arcpy.RasterToPolygon_conversion(
-            in_raster=setnull_path,
-            out_polygon_features=out_feature_ll,
-            simplify="SIMPLIFY",
-            raster_field="Value",
-            create_multipart_features="SINGLE_OUTER_PART",
-            max_vertices_per_feature="",
+    # generate experession string
+    logger.info(f"{area}_{year}: Calculate Field")
+    calculate_field_lst = [r"!" + f"{area}_{year}"[0:10] + r"!" for year in year_lst]
+    cal_expression = f"CountFieldsGreaterThanZero({calculate_field_lst})"
+    code = "def CountFieldsGreaterThanZero(fieldList):\n    counter = 0\n    for field in fieldList:\n        if int(field) > 0:\n            counter += 1\n    return counter"
+    try:
+        arcpy.CalculateField_management(
+            in_table=output_path,
+            field="COUNT0",
+            expression=cal_expression,
+            code_block=code,
         )
+    except Exception as e:
+        error_msg = e.args
+        logger.error(error_msg)
+        f = open(error_path, "a")
+        f.write("".join(str(item) for item in error_msg))
+        f.write(r"/n")
+        f.close()
+        sys.exit(0)
+    except:
+        error_msg = arcpy.GetMessage(0)
+        logger.error(error_msg)
+        f = open(error_path, "a")
+        f.write("".join(str(item) for item in error_msg))
+        f.write(r"/n")
+        f.close()
+        sys.exit(0)
 
-        logger.info(f"{area}_{year}: Projection")
-        out_feature_in = f"{creation_dir}/Vectors_In/{area}_{start_year}-{end_year}_In.gdb/{area}_{year}_In"
-        arcpy.management.Project(
-            in_dataset=out_feature_ll,
-            out_dataset=out_feature_in,
-            out_coor_system=COORDINATE_STRING,
-            transform_method=[],
-            in_coor_system="",
-            preserve_shape="NO_PRESERVE_SHAPE",
-            max_deviation="",
-            vertical="NO_VERTICAL",
-        )
+    # Start SetNull
+    logger.info(f"{area}_{year}: Start SetNull")
+    print(f"{area}: Creating Null mask for pixels with < 1.1 years of data...")
+    setnull_path = f"{creation_dir}/Combine/{area}_{start_year}-{end_year}_NULL.tif"
+    arcpy.gp.SetNull_sa(output_path, output_path, setnull_path, '"COUNT0" < 1.1')
+
+    # Convert Raster to Vector
+    logger.info(f"{area}_{year}: Convert Raster to Vector")
+    out_feature_ll = f"{creation_dir}/Vectors_LL/{area}_{start_year}-{end_year}.gdb/{area}_{year}_In"
+    arcpy.RasterToPolygon_conversion(
+        in_raster=setnull_path,
+        out_polygon_features=out_feature_ll,
+        simplify="SIMPLIFY",
+        raster_field="Value",
+        create_multipart_features="SINGLE_OUTER_PART",
+        max_vertices_per_feature="",
+    )
+
+    logger.info(f"{area}_{year}: Projection")
+    out_feature_in = f"{creation_dir}/Vectors_In/{area}_{start_year}-{end_year}_In.gdb/{area}_{year}_In"
+    arcpy.management.Project(
+        in_dataset=out_feature_ll,
+        out_dataset=out_feature_in,
+        out_coor_system=COORDINATE_STRING,
+        transform_method=[],
+        in_coor_system="",
+        preserve_shape="NO_PRESERVE_SHAPE",
+        max_deviation="",
+        vertical="NO_VERTICAL",
+    )
 
     t1 = time.perf_counter()
     print(f"Time to finish all the steps before Elimination for {area}: {round((t1 - t0) / 60, 2)} minutes")
@@ -263,6 +265,7 @@ def csb_process(start_year, end_year, area):
 
     eliminate_success = False
     while not eliminate_success:
+        print(f"{area}: Running Elimination...")
         try:
             with arcpy.EnvManager(
                 scratchWorkspace=f"{creation_dir}/Vectors_temp/{area}_{start_year}-{end_year}_temp.gdb",
@@ -272,6 +275,7 @@ def csb_process(start_year, end_year, area):
                     input_layers=f"{creation_dir}/Vectors_In/{area}_{start_year}-{end_year}_In.gdb",
                     workspace=f"{creation_dir}/Vectors_Out/{area}_{start_year}-{end_year}_OUT.gdb",
                     scratch=f"{creation_dir}/Vectors_temp/{area}_{start_year}-{end_year}_temp.gdb",
+                    area=f"{area}",
                 )
             eliminate_success = True
 
@@ -302,13 +306,14 @@ def csb_process(start_year, end_year, area):
     print(f"Time that Elimination takes for {area}: {round((t2 - t1) / 60, 2)} minutes")
     logger.info(f"Time that Elimination takes for {area}: {round((t2 - t1) / 60, 2)} minutes")
 
-    for year in range(len(file_lst)):
-        logger.info(f"{area}_{year}: Select analysis")
-        arcpy.Select_analysis(
-            in_features=f"{creation_dir}/Vectors_Out/{area}_{start_year}-{end_year}_OUT.gdb/Out_{area}_{year}_In",
-            out_feature_class=f"{creation_dir}/Vectors_Out/{area}_{year}_{start_year}_{end_year}_Out.shp",
-            where_clause="Shape_Area >10000",
-        )
+    # for item in range(len(file_lst)):
+    #     logger.info(f"{area}_{item}: Select analysis")
+    print(f"{area}: Selecting polygons with Shape_Area > 10000 and saving to ShapeFile...")
+    arcpy.Select_analysis(
+        in_features=f"{creation_dir}/Vectors_Out/{area}_{start_year}-{end_year}_OUT.gdb/Out_{area}_{year}_In",
+        out_feature_class=f"{creation_dir}/Vectors_Out/{area}_{year}_{start_year}_{end_year}_Out.shp",
+        where_clause="Shape_Area > 10000",
+    )
 
     t3 = time.perf_counter()
     print(f"Total time for {area}: {round((t3 - t0) / 60, 2)} minutes")
@@ -317,11 +322,12 @@ def csb_process(start_year, end_year, area):
 
 
 # Arcgis toolbox code that performs polygon elimination
-def CSBElimination(input_layers, workspace, scratch):
+def CSBElimination(input_layers, workspace, scratch, area):
     """Performs polygon elimination on input layers"""
     # To allow overwriting outputs change overwriteOutput option to True.
     arcpy.env.overwriteOutput = True
 
+    print(f"{area}:  Starting Elimination")
     for feature_class, name in FeatureClassGenerator(input_layers, "", "POLYGON", "NOT_RECURSIVE"):
         # Process: Make Feature Layer (Make Feature Layer) (management)
         _layer_name = f"{name}"
@@ -335,6 +341,7 @@ def CSBElimination(input_layers, workspace, scratch):
             )
 
         # Process: Select Layer By Attribute (Select Layer By Attribute) (management)
+        print(f"{area}:  Selecting polygons with Shape_Area <= 100...")
         with arcpy.EnvManager(outputCoordinateSystem=OUTPUT_COORDINATE_SYSTEM_2_):
             selected = arcpy.management.SelectLayerByAttribute(
                 in_layer_or_view=_layer_name,
@@ -345,6 +352,7 @@ def CSBElimination(input_layers, workspace, scratch):
 
         # Process: Eliminate (Eliminate) (management)
         _temp1_name = rf"{scratch}\{name}_temp1"
+        print(f"{area}:  Eliminating polygons with Shape_Area <= 100...")
         if selected:
             with arcpy.EnvManager(outputCoordinateSystem=OUTPUT_COORDINATE_SYSTEM_2_):
                 arcpy.management.Eliminate(
@@ -369,6 +377,7 @@ def CSBElimination(input_layers, workspace, scratch):
 
         # Process: Select Layer By Attribute (2) (Select Layer By Attribute) (management)
         if selected:
+            print(f"{area}:  Selecting polygons with Shape_Area <= 1,000...")
             with arcpy.EnvManager(outputCoordinateSystem=OUTPUT_COORDINATE_SYSTEM_2_):
                 selected_2_ = arcpy.management.SelectLayerByAttribute(
                     in_layer_or_view=input2,
@@ -378,6 +387,7 @@ def CSBElimination(input_layers, workspace, scratch):
                 )
 
         # Process: Eliminate (2) (Eliminate) (management)
+        print(f"{area}:  Eliminating polygons with Shape_Area <= 1,000...")
         _temp2_name = rf"{scratch}\{name}_temp2"
         if selected and selected_2_:
             with arcpy.EnvManager(outputCoordinateSystem=OUTPUT_COORDINATE_SYSTEM_2_):
@@ -402,6 +412,7 @@ def CSBElimination(input_layers, workspace, scratch):
 
         # Process: Select Layer By Attribute (3) (Select Layer By Attribute) (management)
         if selected and selected_2_:
+            print(f"{area}:  First selection of polygons with Shape_Area <= 10,000...")
             selected_3_ = arcpy.management.SelectLayerByAttribute(
                 in_layer_or_view=temp2_layer,
                 selection_type="NEW_SELECTION",
@@ -412,6 +423,7 @@ def CSBElimination(input_layers, workspace, scratch):
         # Process: Eliminate (3) (Eliminate) (management)
         _temp3_name = rf"{scratch}\{name}_temp3"
         if selected and selected_2_ and selected_3_:
+            print(f"{area}:  First elimination of polygons with Shape_Area <= 10,000...")
             arcpy.management.Eliminate(
                 in_features=selected_3_,
                 out_feature_class=_temp3_name,
@@ -433,6 +445,7 @@ def CSBElimination(input_layers, workspace, scratch):
 
         # Process: Select Layer By Attribute (4) (Select Layer By Attribute) (management)
         if selected and selected_2_ and selected_3_:
+            print(f"{area}:  Second selection of polygons with Shape_Area <= 10,000...")
             selected_4_ = arcpy.management.SelectLayerByAttribute(
                 in_layer_or_view=input2_2_,
                 selection_type="NEW_SELECTION",
@@ -443,6 +456,7 @@ def CSBElimination(input_layers, workspace, scratch):
         # Process: Eliminate (4) (Eliminate) (management)
         out_name_ = rf"{workspace}\Out_{name}"
         if selected and selected_2_ and selected_3_ and selected_4_:
+            print(f"{area}:  Second elimination of polygons with Shape_Area <= 10,000...")
             arcpy.management.Eliminate(
                 in_features=selected_4_,
                 out_feature_class=out_name_,
@@ -519,9 +533,11 @@ def chunks(l, n):
 
 
 def sort_key(file_name: str) -> tuple[str, int]:
-    """Sorts list of files to process"""
-    name_parts = file_name.split("_")
-    return (name_parts[0], int(name_parts[1]))
+    """Splits file name into area and year parts, returns tuple for sorting
+    Assumes the file name consists of one or more text characters followed by a 1-4 digit number
+    """
+    num_part_start = re.search(r"\d", file_name).start()
+    return (file_name[:num_part_start], int(file_name[num_part_start:]))
 
 
 if __name__ == "__main__":
