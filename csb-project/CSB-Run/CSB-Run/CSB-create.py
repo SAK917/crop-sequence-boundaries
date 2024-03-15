@@ -1,6 +1,7 @@
 """
 csb_create.py
 """
+
 import logging
 import multiprocessing
 from pathlib import Path
@@ -194,6 +195,8 @@ def csb_process(start_year, end_year, area, creation_dir):
     # generate experession string
     logger.info(f"{area}_{year}: Calculate Field")
     calculate_field_lst = [r"!" + f"{area}_{year}"[0:10] + r"!" for year in year_lst]
+    # TODO: switch previous line to the following line
+    # calculate_field_lst = [f"!{area[:5]}_{year}!" for year in year_lst]
     cal_expression = f"CountFieldsGreaterThanZero({calculate_field_lst})"
     code = "def CountFieldsGreaterThanZero(fieldList):\n    counter = 0\n    for field in fieldList:\n        if int(field) > 0:\n            counter += 1\n    return counter"
     try:
@@ -300,16 +303,16 @@ def csb_process(start_year, end_year, area, creation_dir):
             sys.exit(0)
 
     t2 = time.perf_counter()
-    print(f"Time that Elimination takes for {area}: {round((t2 - t1) / 60, 2)} minutes")
-    logger.info(f"Time that Elimination takes for {area}: {round((t2 - t1) / 60, 2)} minutes")
+    print(f"Elimination for {area}: {round((t2 - t1) / 60, 2)} minutes")
+    logger.info(f"Elimination for {area}: {round((t2 - t1) / 60, 2)} minutes")
 
     # for item in range(len(file_lst)):
     #     logger.info(f"{area}_{item}: Select analysis")
-    print(f"{area}: Selecting polygons with Shape_Area > 10000 and saving to ShapeFile...")
+    print(f"{area}: Selecting polygons with Shape_Area > 2 acres and saving to ShapeFile...")
     arcpy.Select_analysis(
         in_features=f"{creation_dir}/Vectors_Out/{area}_{start_year}-{end_year}_OUT.gdb/Out_{area}_{year}_In",
         out_feature_class=f"{creation_dir}/Vectors_Out/{area}_{year}_{start_year}_{end_year}_Out.shp",
-        where_clause="Shape_Area > 10000",
+        where_clause="Shape_Area > 9000",
     )
 
     t3 = time.perf_counter()
@@ -325,6 +328,7 @@ def CSBElimination(input_layers, workspace, scratch, area):
     arcpy.env.overwriteOutput = True
 
     print(f"{area}:  Starting Elimination")
+
     for feature_class, name in FeatureClassGenerator(input_layers, "", "POLYGON", "NOT_RECURSIVE"):
         # Process: Make Feature Layer (Make Feature Layer) (management)
         _layer_name = f"{name}"
@@ -337,90 +341,90 @@ def CSBElimination(input_layers, workspace, scratch, area):
                 field_info="",
             )
 
-        # Process: Select Layer By Attribute (Select Layer By Attribute) (management)
-        print(f"{area}:  Selecting polygons with Shape_Area <= 100...")
-        with arcpy.EnvManager(outputCoordinateSystem=OUTPUT_COORDINATE_SYSTEM_2_):
-            selected = arcpy.management.SelectLayerByAttribute(
-                in_layer_or_view=_layer_name,
-                selection_type="NEW_SELECTION",
-                where_clause="Shape_Area <=100",
-                invert_where_clause="",
-            )
-
-        # Process: Eliminate (Eliminate) (management)
-        _temp1_name = rf"{scratch}\{name}_temp1"
-        print(f"{area}:  Eliminating polygons with Shape_Area <= 100...")
-        if selected:
+        # First set of eliminations for polygons <= 0.25 acres (1 pixel)
+        for iteration in range(1, 4):
+            print(f"{area}:  Iteration {iteration} selecting polygons with Shape_Area <= 0.25 acres...")
             with arcpy.EnvManager(outputCoordinateSystem=OUTPUT_COORDINATE_SYSTEM_2_):
-                arcpy.management.Eliminate(
-                    in_features=selected,
-                    out_feature_class=_temp1_name,
-                    selection="LENGTH",
-                    ex_where_clause="",
-                    ex_features="",
+                selected = arcpy.management.SelectLayerByAttribute(
+                    in_layer_or_view=_layer_name,
+                    selection_type="NEW_SELECTION",
+                    where_clause="Shape_Area <=1012",
+                    invert_where_clause="",
                 )
 
-        # Process: Make Feature Layer (2) (Make Feature Layer) (management)
-        input2 = f"{name}_temp1_Layer"
-        if selected:
-            with arcpy.EnvManager(outputCoordinateSystem=OUTPUT_COORDINATE_SYSTEM_2_):
+            print(f"{area}:  Iteration {iteration} eliminating polygons with Shape_Area <= 0.25 acres...")
+            _temp_name = rf"{scratch}\{name}_temp{iteration}"
+            if selected:
+                with arcpy.EnvManager(outputCoordinateSystem=OUTPUT_COORDINATE_SYSTEM_2_):
+                    arcpy.management.Eliminate(
+                        in_features=selected,
+                        out_feature_class=_temp_name,
+                        selection="LENGTH",
+                        ex_where_clause="",
+                        ex_features="",
+                    )
+
+            input2 = f"{name}_temp{iteration}_Layer"
+            if selected:
+                with arcpy.EnvManager(outputCoordinateSystem=OUTPUT_COORDINATE_SYSTEM_2_):
+                    arcpy.management.MakeFeatureLayer(
+                        in_features=_temp_name,
+                        out_layer=input2,
+                        where_clause="",
+                        workspace="",
+                        field_info="",
+                    )
+            _layer_name = input2
+
+        # Second set of eliminations for polygons <= 0.5 acres (2 pixels)
+        for iteration in range (1, 3):
+            if selected:
+                print(f"{area}:  Iteration {iteration} selecting polygons with Shape_Area <= 0.5 acres...")
+                with arcpy.EnvManager(outputCoordinateSystem=OUTPUT_COORDINATE_SYSTEM_2_):
+                    selected_2_ = arcpy.management.SelectLayerByAttribute(
+                        in_layer_or_view=_layer_name,
+                        selection_type="NEW_SELECTION",
+                        where_clause="Shape_Area <= 2024",
+                        invert_where_clause="",
+                    )
+
+            print(f"{area}:  Iteration {iteration} eliminating polygons with Shape_Area <= 0.5 acres...")
+            _temp2_name = rf"{scratch}\{name}_temp2-{iteration}"
+            if selected and selected_2_:
+                with arcpy.EnvManager(outputCoordinateSystem=OUTPUT_COORDINATE_SYSTEM_2_):
+                    arcpy.management.Eliminate(
+                        in_features=selected_2_,
+                        out_feature_class=_temp2_name,
+                        selection="LENGTH",
+                        ex_where_clause="",
+                        ex_features="",
+                    )
+
+            temp2_layer = f"{name}_temp2_Layer"
+            if selected and selected_2_:
                 arcpy.management.MakeFeatureLayer(
-                    in_features=_temp1_name,
-                    out_layer=input2,
+                    in_features=_temp2_name,
+                    out_layer=temp2_layer,
                     where_clause="",
                     workspace="",
                     field_info="",
                 )
+            _layer_name = temp2_layer
 
-        # Process: Select Layer By Attribute (2) (Select Layer By Attribute) (management)
-        if selected:
-            print(f"{area}:  Selecting polygons with Shape_Area <= 1,000...")
-            with arcpy.EnvManager(outputCoordinateSystem=OUTPUT_COORDINATE_SYSTEM_2_):
-                selected_2_ = arcpy.management.SelectLayerByAttribute(
-                    in_layer_or_view=input2,
-                    selection_type="NEW_SELECTION",
-                    where_clause="Shape_Area <=1000",
-                    invert_where_clause="",
-                )
-
-        # Process: Eliminate (2) (Eliminate) (management)
-        print(f"{area}:  Eliminating polygons with Shape_Area <= 1,000...")
-        _temp2_name = rf"{scratch}\{name}_temp2"
+        # Third set of eliminations for polygons <= 1 acre
         if selected and selected_2_:
-            with arcpy.EnvManager(outputCoordinateSystem=OUTPUT_COORDINATE_SYSTEM_2_):
-                arcpy.management.Eliminate(
-                    in_features=selected_2_,
-                    out_feature_class=_temp2_name,
-                    selection="LENGTH",
-                    ex_where_clause="",
-                    ex_features="",
-                )
-
-        # Process: Make Feature Layer (3) (Make Feature Layer) (management)
-        temp2_layer = f"{name}_temp2_Layer"
-        if selected and selected_2_:
-            arcpy.management.MakeFeatureLayer(
-                in_features=_temp2_name,
-                out_layer=temp2_layer,
-                where_clause="",
-                workspace="",
-                field_info="",
-            )
-
-        # Process: Select Layer By Attribute (3) (Select Layer By Attribute) (management)
-        if selected and selected_2_:
-            print(f"{area}:  First selection of polygons with Shape_Area <= 10,000...")
+            print(f"{area}:  First selection of polygons with Shape_Area <= 1 acre...")
             selected_3_ = arcpy.management.SelectLayerByAttribute(
-                in_layer_or_view=temp2_layer,
+                in_layer_or_view=_layer_name,
                 selection_type="NEW_SELECTION",
-                where_clause="Shape_Area <=10000",
+                where_clause="Shape_Area <= 4047",
                 invert_where_clause="",
             )
 
         # Process: Eliminate (3) (Eliminate) (management)
-        _temp3_name = rf"{scratch}\{name}_temp3"
+        _temp3_name = rf"{scratch}\{name}_temp3-{iteration}"
         if selected and selected_2_ and selected_3_:
-            print(f"{area}:  First elimination of polygons with Shape_Area <= 10,000...")
+            print(f"{area}:  First elimination of polygons with Shape_Area <= 1 acre...")
             arcpy.management.Eliminate(
                 in_features=selected_3_,
                 out_feature_class=_temp3_name,
@@ -442,18 +446,18 @@ def CSBElimination(input_layers, workspace, scratch, area):
 
         # Process: Select Layer By Attribute (4) (Select Layer By Attribute) (management)
         if selected and selected_2_ and selected_3_:
-            print(f"{area}:  Second selection of polygons with Shape_Area <= 10,000...")
+            print(f"{area}:  Second selection of polygons with Shape_Area <= 2 acres...")
             selected_4_ = arcpy.management.SelectLayerByAttribute(
                 in_layer_or_view=input2_2_,
                 selection_type="NEW_SELECTION",
-                where_clause="Shape_Area <=10000",
+                where_clause="Shape_Area <= 9000",
                 invert_where_clause="",
             )
 
         # Process: Eliminate (4) (Eliminate) (management)
         out_name_ = rf"{workspace}\Out_{name}"
         if selected and selected_2_ and selected_3_ and selected_4_:
-            print(f"{area}:  Second elimination of polygons with Shape_Area <= 10,000...")
+            print(f"{area}:  Second elimination of polygons with Shape_Area <= 2 acres...")
             arcpy.management.Eliminate(
                 in_features=selected_4_,
                 out_feature_class=out_name_,
