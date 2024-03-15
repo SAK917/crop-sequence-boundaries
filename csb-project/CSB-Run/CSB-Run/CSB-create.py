@@ -547,10 +547,10 @@ def sort_key(file_name: str) -> tuple[str, int]:
 def parse_arguments():
     """Parse command line arguments"""
     parser = argparse.ArgumentParser(description="CSB Create")
-    parser.add_argument("start_year", type=str, help="Start year for CSB processing")
-    parser.add_argument("end_year", type=str, help="End year for CSB processing")
+    parser.add_argument("start_year", type=int, help="Start year for CSB processing")
+    parser.add_argument("end_year", type=int, help="End year for CSB processing")
     parser.add_argument("creation_dir", type=str, help="CSB creation directory")
-    parser.add_argument("partial_area", type=str, help="Partial run area")
+    parser.add_argument("partial_area", type=str, default="None", help="Partial run area")
     return parser.parse_args()
 
 def main():
