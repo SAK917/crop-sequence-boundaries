@@ -1,12 +1,12 @@
 """
 csb_create.py
 """
-
+import argparse
 import logging
 import multiprocessing
-from pathlib import Path
 import operator as op
 import os
+from pathlib import Path
 import re
 import sys
 import time
@@ -544,36 +544,46 @@ def sort_key(file_name: str) -> tuple[str, int]:
     num_part_start = re.search(r"\d", file_name).start()
     return (file_name[:num_part_start], int(file_name[num_part_start:]))
 
+def parse_arguments():
+    """Parse command line arguments"""
+    parser = argparse.ArgumentParser(description="CSB Create")
+    parser.add_argument("start_year", type=str, help="Start year for CSB processing")
+    parser.add_argument("end_year", type=str, help="End year for CSB processing")
+    parser.add_argument("creation_dir", type=str, help="CSB creation directory")
+    parser.add_argument("partial_area", type=str, help="Partial run area")
+    return parser.parse_args()
 
 def main():
     # command line inputs passed by CSB-Run
-    start_year = sys.argv[1]
-    end_year = sys.argv[2]
-    creation_dir = sys.argv[3]  # create_1421_20220511_1
-    partial_area = sys.argv[4]  # partial run area e.g. G9 or 'None'
+    args = parse_arguments()
+    # start_year = sys.argv[1]
+    # end_year = sys.argv[2]
+    # creation_dir = sys.argv[3]  # create_1421_20220511_1
+    # partial_area = sys.argv[4]  # partial run area e.g. G9 or 'None'
 
     # Get Creation and Split_raster paths from csb-default.ini
     cfg = utils.GetConfig("default")
     split_rasters = f'{cfg["folders"]["split_rasters"]}'
     print(f"Split raster folder: {split_rasters}")
+    
     # get list of area files
-    file_obj = Path(f"{split_rasters}/{start_year}/").rglob("*.tif")
-    file_lst = [str(x).split(f"{start_year}")[1][1:-1] for x in file_obj]
+    file_obj = Path(f"{split_rasters}/{args.start_year}/").rglob("*.tif")
+    file_lst = [str(x).split(f"{args.start_year}")[1][1:-1] for x in file_obj]
     file_lst.sort(key=sort_key)
     print(f"{len(file_lst)} split raster files to process.")
 
     # delete old files from previous run if doing partial run
-    if partial_area != "None":
-        file_lst = [x for x in file_lst if x == partial_area]
-        csb_yrs = creation_dir.split("_")[-3]
+    if args.partial_area != "None":
+        file_lst = [x for x in file_lst if x == args.partial_area]
+        csb_yrs = args.creation_dir.split("_")[-3]
         start_year = f"20{csb_yrs[0:2]}"
         end_year = f"20{csb_yrs[2:5]}"
-        utils.DeletusGDBus(partial_area, creation_dir)
+        utils.DeletusGDBus(args.partial_area, args.creation_dir)
 
     # Kick off multiple instances of CSB_Process by area
     processes = []
     for area in np.unique(file_lst):
-        p = multiprocessing.Process(target=csb_process, args=[start_year, end_year, area, creation_dir])
+        p = multiprocessing.Process(target=csb_process, args=[args.start_year, args.end_year, area, args.creation_dir])
         processes.append(p)
 
     # get number of CPUs to use in run
