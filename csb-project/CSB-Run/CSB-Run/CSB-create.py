@@ -1,9 +1,10 @@
 """
 csb_create.py
 """
+
 import argparse
+from concurrent.futures import ProcessPoolExecutor, as_completed
 import logging
-import multiprocessing
 import operator as op
 import os
 from pathlib import Path
@@ -25,27 +26,6 @@ COORDINATE_STRING = r'PROJCS["USA_Contiguous_Albers_Equal_Area_Conic_USGS_versio
 
 # projection for elimination
 OUTPUT_COORDINATE_SYSTEM_2_ = 'PROJCS["Albers_Conic_Equal_Area",GEOGCS["GCS_North_American_1983",DATUM["D_North_American_1983",SPHEROID["GRS_1980",6378137.0,298.257222101]],PRIMEM["Greenwich",0.0],UNIT["Degree",0.0174532925199433]],PROJECTION["Albers"],PARAMETER["false_easting",0.0],PARAMETER["false_northing",0.0],PARAMETER["central_meridian",-96.0],PARAMETER["standard_parallel_1",29.5],PARAMETER["standard_parallel_2",45.5],PARAMETER["latitude_of_origin",23.0],UNIT["Meter",1.0]]'
-
-
-# load ArcGIS packages, keep trying until it works (concurrent license problem)
-# Disable VS Code Pylance warnings that arcpy may be unbound due to import being in the try block
-# pyright: reportUnboundVariable=false
-# pyright: reportOptionalMemberAccess=false
-# arcpy_loaded = False
-# while not arcpy_loaded:
-#     try:
-#         import arcpy
-#         import arcpy.management
-
-#         arcpy.CheckOutExtension("Spatial")
-#         import arcpy.sa
-
-#         arcpy_loaded = True
-#     except RuntimeError as e:
-#         print(e)
-#         # logger.error(e)
-#         time.sleep(1)
-
 
 
 def csb_process(start_year, end_year, area, creation_dir):
@@ -381,7 +361,7 @@ def CSBElimination(input_layers, workspace, scratch, area):
             _layer_name = input2
 
         # Second set of eliminations for polygons <= 0.5 acres (2 pixels)
-        for iteration in range (1, 3):
+        for iteration in range(1, 3):
             if selected:
                 print(f"{area}:  Iteration {iteration} selecting polygons with Shape_Area <= 0.5 acres...")
                 with arcpy.EnvManager(outputCoordinateSystem=OUTPUT_COORDINATE_SYSTEM_2_):
@@ -528,21 +508,13 @@ def RepairTopology(in_gdb, temp_gdb, area, area_logger):
     area_logger.info(success_msg)
 
 
-def chunks(l, n):
-    """Magic function used to kick off and join multiprocessing tasks
-    Args:
-        l (list): list of items to be processed
-        n (int): number of items to process at a time"""
-    for item in range(0, len(l), n):
-        yield l[item : item + n]
-
-
 def sort_key(file_name: str) -> tuple[str, int]:
     """Splits file name into area and year parts, returns tuple for sorting
     Assumes the file name consists of one or more text characters followed by a 1-4 digit number
     """
     num_part_start = re.search(r"\d", file_name).start()
     return (file_name[:num_part_start], int(file_name[num_part_start:]))
+
 
 def parse_arguments():
     """Parse command line arguments"""
@@ -553,19 +525,21 @@ def parse_arguments():
     parser.add_argument("partial_area", type=str, default="None", help="Partial run area")
     return parser.parse_args()
 
+
 def main():
     # command line inputs passed by CSB-Run
+    # start_year (int): Start year for CSB being generated
+    # end_year (int): End year for CSB being generated
+    # creation_dir (str): CSB creation directory
+    # partial_area (str): Partial run area
     args = parse_arguments()
-    # start_year = sys.argv[1]
-    # end_year = sys.argv[2]
-    # creation_dir = sys.argv[3]  # create_1421_20220511_1
-    # partial_area = sys.argv[4]  # partial run area e.g. G9 or 'None'
 
     # Get Creation and Split_raster paths from csb-default.ini
+    # TODO: change to use user specified config file
     cfg = utils.GetConfig("default")
     split_rasters = f'{cfg["folders"]["split_rasters"]}'
     print(f"Split raster folder: {split_rasters}")
-    
+
     # get list of area files
     file_obj = Path(f"{split_rasters}/{args.start_year}/").rglob("*.tif")
     file_lst = [str(x).split(f"{args.start_year}")[1][1:-1] for x in file_obj]
@@ -580,21 +554,28 @@ def main():
         end_year = f"20{csb_yrs[2:5]}"
         utils.DeletusGDBus(args.partial_area, args.creation_dir)
 
-    # Kick off multiple instances of CSB_Process by area
-    processes = []
-    for area in np.unique(file_lst):
-        p = multiprocessing.Process(target=csb_process, args=[args.start_year, args.end_year, area, args.creation_dir])
-        processes.append(p)
-
-    # get number of CPUs to use in run
+    # get number of CPUs to use for processing
     cpu_prct = float(cfg["global"]["cpu_prct"])
-    run_cpu = int(round(cpu_prct * multiprocessing.cpu_count(), 0))
-    print(f"Number of CPUs: {run_cpu}")
-    for i in chunks(processes, run_cpu):
-        for j in i:
-            j.start()
-        for j in i:
-            j.join()
+    run_cpu = int(round(cpu_prct * os.cpu_count(), 0))
+    print(f"Using {run_cpu} CPUs for CSB processing...")
+
+    # Create a list of arguments for each process
+    process_args = [(args.start_year, args.end_year, area, args.creation_dir) for area in np.unique(file_lst)]
+
+    # Create a pool of processes and submit each area for processing as a CPU is available
+    with ProcessPoolExecutor(max_workers=run_cpu) as executor:
+        futures = {executor.submit(csb_process, *args): args for args in process_args}
+        completed = 0
+        num_areas = len(futures)
+        for future in as_completed(futures):
+            completed += 1
+            try:
+                result = future.result()
+                print(result)
+            except Exception as e:
+                area = futures[future][2]
+                print(f"CSB sub-unit {area} failed with error: {e}")
+            print(f"{completed} of {num_areas} processed ({100.0 * completed / num_areas:.1f}%)")
 
 
 if __name__ == "__main__":
