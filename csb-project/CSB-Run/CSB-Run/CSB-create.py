@@ -11,6 +11,10 @@ import re
 import sys
 import time
 
+import arcpy
+import arcpy.management
+import arcpy.sa
+
 import numpy as np
 
 # CSB-Run utility functions
@@ -27,20 +31,20 @@ OUTPUT_COORDINATE_SYSTEM_2_ = 'PROJCS["Albers_Conic_Equal_Area",GEOGCS["GCS_Nort
 # Disable VS Code Pylance warnings that arcpy may be unbound due to import being in the try block
 # pyright: reportUnboundVariable=false
 # pyright: reportOptionalMemberAccess=false
-arcpy_loaded = False
-while not arcpy_loaded:
-    try:
-        import arcpy
-        import arcpy.management
+# arcpy_loaded = False
+# while not arcpy_loaded:
+#     try:
+#         import arcpy
+#         import arcpy.management
 
-        arcpy.CheckOutExtension("Spatial")
-        import arcpy.sa
+#         arcpy.CheckOutExtension("Spatial")
+#         import arcpy.sa
 
-        arcpy_loaded = True
-    except RuntimeError as e:
-        print(e)
-        # logger.error(e)
-        time.sleep(1)
+#         arcpy_loaded = True
+#     except RuntimeError as e:
+#         print(e)
+#         # logger.error(e)
+#         time.sleep(1)
 
 
 
