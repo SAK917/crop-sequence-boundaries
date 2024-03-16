@@ -28,6 +28,31 @@ COORDINATE_STRING = r'PROJCS["USA_Contiguous_Albers_Equal_Area_Conic_USGS_versio
 OUTPUT_COORDINATE_SYSTEM_2_ = 'PROJCS["Albers_Conic_Equal_Area",GEOGCS["GCS_North_American_1983",DATUM["D_North_American_1983",SPHEROID["GRS_1980",6378137.0,298.257222101]],PRIMEM["Greenwich",0.0],UNIT["Degree",0.0174532925199433]],PROJECTION["Albers"],PARAMETER["false_easting",0.0],PARAMETER["false_northing",0.0],PARAMETER["central_meridian",-96.0],PARAMETER["standard_parallel_1",29.5],PARAMETER["standard_parallel_2",45.5],PARAMETER["latitude_of_origin",23.0],UNIT["Meter",1.0]]'
 
 
+def create_gdb(out_folder_path, out_name):
+    """Create a file geodatabase"""
+    arcpy.CreateFileGDB_management(
+        out_folder_path=out_folder_path,
+        out_name=out_name,
+        out_version="CURRENT",
+    )
+
+
+def initialize_gdbs(creation_dir, gdb_name, area, logger, error_path):
+    """Initialize the file geodatabases for the CSB processing"""
+    try:
+        print(f"{area}: Creating GDBs")
+        logger.info(f"{area}: Creating GDBs")
+        create_gdb(f"{creation_dir}/Vectors_LL", f"{gdb_name}.gdb")
+        create_gdb(f"{creation_dir}/Vectors_Out", f"{gdb_name}_OUT.gdb")
+        create_gdb(f"{creation_dir}/Vectors_temp", f"{gdb_name}_temp.gdb")
+        create_gdb(f"{creation_dir}/Vectors_In", f"{gdb_name}_In.gdb")
+    except Exception as e:
+        logger.exception("An error occurred while creating the GDBs")
+        with open(error_path, "a") as f:
+            f.write(str(e))
+        sys.exit(0)
+
+
 def csb_process(start_year, end_year, area, creation_dir):
     """Main function that creates CSB datasets, performs elimination, run using multiprocessing"""
     # Get config items, configure logger
@@ -43,6 +68,7 @@ def csb_process(start_year, end_year, area, creation_dir):
     logger = logging.getLogger()
     error_path = f"{creation_dir}/log/overall_error.txt"
 
+    t0 = time.perf_counter()
     # Set up list of years covered in history
     year_lst = []
     for year in range(int(start_year), int(end_year) + 1):
@@ -52,63 +78,13 @@ def csb_process(start_year, end_year, area, creation_dir):
     year_file_lst = []
     for year in year_lst:
         file_path = f'{cfg["folders"]["split_rasters"]}/{year}/{area}_{year}.TIF'
-        # file_obj = Path(file_path).rglob(f"{area}_{year}*.tif")
-        # file_lst = [str(x) for x in file_obj]
-        # sort_file_lst = []
-        # for item in range(len(file_lst)):
-        #     path = f"{file_path}/{area}_{year}_{item}.TIF"
-        #     sort_file_lst.append(path)
         year_file_lst.append(file_path)
 
-    gdb_created = False
-    while not gdb_created:
-        try:
-            t0 = time.perf_counter()
-            print(f"{area}: Creating GDBs")
-            logger.info(f"{area}: Creating GDBs")
-            arcpy.CreateFileGDB_management(
-                out_folder_path=f"{creation_dir}/Vectors_LL",
-                out_name=f"{area}_{str(start_year)}-{str(end_year)}.gdb",
-                out_version="CURRENT",
-            )
-            arcpy.CreateFileGDB_management(
-                out_folder_path=f"{creation_dir}/Vectors_Out",
-                out_name=f"{area}_{str(start_year)}-{str(end_year)}_OUT.gdb",
-                out_version="CURRENT",
-            )
-            arcpy.CreateFileGDB_management(
-                out_folder_path=f"{creation_dir}/Vectors_temp",
-                out_name=f"{area}_{str(start_year)}-{str(end_year)}_temp.gdb",
-                out_version="CURRENT",
-            )
-            arcpy.CreateFileGDB_management(
-                out_folder_path=f"{creation_dir}/Vectors_In/",
-                out_name=f"{area}_{str(start_year)}-{str(end_year)}_In.gdb",
-                out_version="CURRENT",
-            )
-            gdb_created = True
-
-        except Exception as e:
-            error_msg = e.args
-            logger.error(error_msg)
-            f = open(error_path, "a")
-            f.write("".join(str(item) for item in error_msg))
-            f.close()
-            sys.exit(0)
-        except:
-            error_msg = arcpy.GetMessage(0)
-            logger.error(error_msg)
-            f = open(error_path, "a")
-            # f.write("".join(str(item) for item in error_msg))
-            f.write(str(error_msg))
-            f.close()
-            sys.exit(0)
+    gdb_name = f"{area}_{str(start_year)}-{str(end_year)}"
+    initialize_gdbs(creation_dir, gdb_name, area, logger, error_path)
 
     print(f"{area}: Start Combine")
     logger.info(f"{area}: Start Combine")
-    # for item in range(len(file_lst)):
-    # cdl_lst = [path for path in year_file_lst]
-    # input_path = ";".join(cdl_lst)
     output_path = f"{creation_dir}/CombineALL/{area}_{start_year}-{end_year}.tif"
     arcpy.gp.Combine_sa(year_file_lst, output_path)  # type: ignore
     logger.info(f"{area}: Combine Done, Adding Field")
