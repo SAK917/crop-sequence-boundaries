@@ -27,6 +27,19 @@ COORDINATE_STRING = r'PROJCS["USA_Contiguous_Albers_Equal_Area_Conic_USGS_versio
 # projection for elimination
 OUTPUT_COORDINATE_SYSTEM_2_ = 'PROJCS["Albers_Conic_Equal_Area",GEOGCS["GCS_North_American_1983",DATUM["D_North_American_1983",SPHEROID["GRS_1980",6378137.0,298.257222101]],PRIMEM["Greenwich",0.0],UNIT["Degree",0.0174532925199433]],PROJECTION["Albers"],PARAMETER["false_easting",0.0],PARAMETER["false_northing",0.0],PARAMETER["central_meridian",-96.0],PARAMETER["standard_parallel_1",29.5],PARAMETER["standard_parallel_2",45.5],PARAMETER["latitude_of_origin",23.0],UNIT["Meter",1.0]]'
 
+LOG_FORMAT = "%(levelname)s %(asctime)s - %(message)s"
+
+
+def initialize_logger(creation_dir, area):
+    """Initialize the logger for the CSB processing"""
+    logging.basicConfig(
+        filename=f"{creation_dir}/log/{area}.log",
+        level=logging.DEBUG,  # by default it only log warming or above
+        format=LOG_FORMAT,
+        filemode="a",  # over write instead of appending
+    )
+    return logging.getLogger()
+
 
 def create_gdb(out_folder_path, out_name):
     """Create a file geodatabase"""
@@ -54,19 +67,14 @@ def initialize_gdbs(creation_dir, gdb_name, area, logger, error_path):
 
 
 def csb_process(start_year, end_year, area, creation_dir):
-    """Main function that creates CSB datasets, performs elimination, run using multiprocessing"""
-    # Get config items, configure logger
-    cfg = utils.GetConfig("default")
+    """Create a CSB dataset for the specified area and years"""
 
-    LOG_FORMAT = "%(levelname)s %(asctime)s - %(message)s"
-    logging.basicConfig(
-        filename=f"{creation_dir}/log/{area}.log",
-        level=logging.DEBUG,  # by default it only log warming or above
-        format=LOG_FORMAT,
-        filemode="a",
-    )  # over write instead of appending
-    logger = logging.getLogger()
+    # Initialize logger in this functino so that each spawned process has its own logger
+    logger = initialize_logger(creation_dir, area)
     error_path = f"{creation_dir}/log/overall_error.txt"
+
+    # Load configuration settings
+    cfg = utils.GetConfig("default")
 
     t0 = time.perf_counter()
     # Set up list of years covered in history
