@@ -66,7 +66,7 @@ def initialize_gdbs(creation_dir, gdb_name, area, logger, error_path):
         sys.exit(0)
 
 
-def csb_process(start_year, end_year, area, creation_dir):
+def process_csb(start_year, end_year, area, creation_dir):
     """Create a CSB dataset for the specified area and years"""
 
     # Initialize logger in this functino so that each spawned process has its own logger
@@ -239,7 +239,7 @@ def csb_process(start_year, end_year, area, creation_dir):
                 scratchWorkspace=f"{creation_dir}/Vectors_temp/{area}_{start_year}-{end_year}_temp.gdb",
                 workspace=f"{creation_dir}/Vectors_temp/{area}_{start_year}-{end_year}_temp.gdb",
             ):
-                CSBElimination(
+                csb_elimination(
                     input_layers=f"{creation_dir}/Vectors_In/{area}_{start_year}-{end_year}_In.gdb",
                     workspace=f"{creation_dir}/Vectors_Out/{area}_{start_year}-{end_year}_OUT.gdb",
                     scratch=f"{creation_dir}/Vectors_temp/{area}_{start_year}-{end_year}_temp.gdb",
@@ -289,150 +289,100 @@ def csb_process(start_year, end_year, area, creation_dir):
     return f"Finished {area}"
 
 
-# Arcgis toolbox code that performs polygon elimination
-def CSBElimination(input_layers, workspace, scratch, area):
-    """Performs polygon elimination on input layers"""
-    # To allow overwriting outputs change overwriteOutput option to True.
-    arcpy.env.overwriteOutput = True
+def process_layer(layer_name, shape_area, iterations, scratch):
+    """Selects polygons <= shape_area, performs an elimination,
+    and creates a new feature layer returning the layer name"""
 
-    print(f"{area}:  Starting Elimination")
-
-    for feature_class, name in FeatureClassGenerator(input_layers, "", "POLYGON", "NOT_RECURSIVE"):
-        # Process: Make Feature Layer (Make Feature Layer) (management)
-        _layer_name = f"{name}"
-        with arcpy.EnvManager(outputCoordinateSystem=OUTPUT_COORDINATE_SYSTEM_2_):
-            arcpy.management.MakeFeatureLayer(
-                in_features=feature_class,
-                out_layer=_layer_name,
-                where_clause="",
-                workspace="",
-                field_info="",
+    try:
+        new_layer_name = layer_name
+        for i in range(iterations):
+            # Select CSB polygons that meet size criteria
+            print(f"   Iteration {i + 1}:  Selecting polygons with Shape_Area <= {shape_area}m2...")
+            selected = arcpy.management.SelectLayerByAttribute(
+                in_layer_or_view=new_layer_name,
+                selection_type="NEW_SELECTION",
+                where_clause=f"Shape_Area <= {shape_area}",
+                invert_where_clause="",
             )
+            poly_count = int(arcpy.management.GetCount(selected)[0])
 
-        # First set of eliminations for polygons <= 0.25 acres (1 pixel)
-        for iteration in range(1, 4):
-            print(f"{area}:  Iteration {iteration} selecting polygons with Shape_Area <= 0.25 acres...")
-            with arcpy.EnvManager(outputCoordinateSystem=OUTPUT_COORDINATE_SYSTEM_2_):
-                selected = arcpy.management.SelectLayerByAttribute(
-                    in_layer_or_view=_layer_name,
-                    selection_type="NEW_SELECTION",
-                    where_clause="Shape_Area <=1012",
-                    invert_where_clause="",
-                )
-
-            print(f"{area}:  Iteration {iteration} eliminating polygons with Shape_Area <= 0.25 acres...")
-            _temp_name = rf"{scratch}\{name}_temp{iteration}"
-            if selected:
+            # Eliminate selected CSB polygons that meet size criteria
+            if poly_count > 0:
+                print(f"   Iteration {i + 1}:  Eliminating {poly_count} polygons...")
+                temp_name = rf"{scratch}\{layer_name}_temp_{shape_area}_{i + 1}"
                 with arcpy.EnvManager(outputCoordinateSystem=OUTPUT_COORDINATE_SYSTEM_2_):
                     arcpy.management.Eliminate(
                         in_features=selected,
-                        out_feature_class=_temp_name,
+                        out_feature_class=temp_name,
                         selection="LENGTH",
                         ex_where_clause="",
                         ex_features="",
                     )
 
-            input2 = f"{name}_temp{iteration}_Layer"
-            if selected:
+                # Make a new feature layer from the result
+                new_layer_name = f"{layer_name}_temp{i}_Layer"
+                print(f"   Iteration {i + 1}:  Creating new intermediate feature layer {new_layer_name}...")
                 with arcpy.EnvManager(outputCoordinateSystem=OUTPUT_COORDINATE_SYSTEM_2_):
                     arcpy.management.MakeFeatureLayer(
-                        in_features=_temp_name,
-                        out_layer=input2,
+                        in_features=temp_name,
+                        out_layer=new_layer_name,
                         where_clause="",
                         workspace="",
                         field_info="",
                     )
-            _layer_name = input2
+            else:
+                print(f"   Iteration {i + 1} No polygons <= {shape_area}m2 selected, skipping to next size...")
 
-        # Second set of eliminations for polygons <= 0.5 acres (2 pixels)
-        for iteration in range(1, 3):
-            if selected:
-                print(f"{area}:  Iteration {iteration} selecting polygons with Shape_Area <= 0.5 acres...")
-                with arcpy.EnvManager(outputCoordinateSystem=OUTPUT_COORDINATE_SYSTEM_2_):
-                    selected_2_ = arcpy.management.SelectLayerByAttribute(
-                        in_layer_or_view=_layer_name,
-                        selection_type="NEW_SELECTION",
-                        where_clause="Shape_Area <= 2024",
-                        invert_where_clause="",
-                    )
+        return new_layer_name
 
-            print(f"{area}:  Iteration {iteration} eliminating polygons with Shape_Area <= 0.5 acres...")
-            _temp2_name = rf"{scratch}\{name}_temp2-{iteration}"
-            if selected and selected_2_:
-                with arcpy.EnvManager(outputCoordinateSystem=OUTPUT_COORDINATE_SYSTEM_2_):
-                    arcpy.management.Eliminate(
-                        in_features=selected_2_,
-                        out_feature_class=_temp2_name,
-                        selection="LENGTH",
-                        ex_where_clause="",
-                        ex_features="",
-                    )
+    except Exception as e:
+        print(f"An error occurred during processing: {e}")
+        return None
 
-            temp2_layer = f"{name}_temp2_Layer"
-            if selected and selected_2_:
-                arcpy.management.MakeFeatureLayer(
-                    in_features=_temp2_name,
-                    out_layer=temp2_layer,
-                    where_clause="",
-                    workspace="",
-                    field_info="",
-                )
-            _layer_name = temp2_layer
 
-        # Third set of eliminations for polygons <= 1 acre
-        if selected and selected_2_:
-            print(f"{area}:  First selection of polygons with Shape_Area <= 1 acre...")
-            selected_3_ = arcpy.management.SelectLayerByAttribute(
-                in_layer_or_view=_layer_name,
-                selection_type="NEW_SELECTION",
-                where_clause="Shape_Area <= 4047",
-                invert_where_clause="",
-            )
+# ArcGIS toolbox code that performs polygon elimination
+def csb_elimination(input_layers, workspace, scratch, area):
+    """Performs polygon elimination on input layers"""
+    # To allow overwriting outputs change overwriteOutput option to True.
+    arcpy.env.overwriteOutput = True
 
-        # Process: Eliminate (3) (Eliminate) (management)
-        _temp3_name = rf"{scratch}\{name}_temp3-{iteration}"
-        if selected and selected_2_ and selected_3_:
-            print(f"{area}:  First elimination of polygons with Shape_Area <= 1 acre...")
-            arcpy.management.Eliminate(
-                in_features=selected_3_,
-                out_feature_class=_temp3_name,
-                selection="LENGTH",
-                ex_where_clause="",
-                ex_features="",
-            )
+    # Data structure that defines the eliminations to be performed
+    # The first number is the area in square meters approximately equal to a specified acreage,
+    # and the second number is the number of iterations to eliminate using the area
+    # For example, the first elimination of (1012, 3) will eliminate polygons <= 0.25 acres three times
+    # 0.25 acres, 0.50 acres, 1.00 acre, 2.00 acres
+    eliminations = [(1000, 5), (1900, 5), (2800, 5), (3700, 5), (4600, 5), (5500, 5), (6500, 5)]
 
-        # Process: Make Feature Layer (4) (Make Feature Layer) (management)
-        input2_2_ = f"{name}_temp3_Layer"
-        if selected and selected_2_ and selected_3_:
+    print(f"{area}:  Starting Elimination")
+
+    for feature_class, layer_name in FeatureClassGenerator(input_layers, "", "POLYGON", "NOT_RECURSIVE"):
+        with arcpy.EnvManager(outputCoordinateSystem=OUTPUT_COORDINATE_SYSTEM_2_):
             arcpy.management.MakeFeatureLayer(
-                in_features=_temp3_name,
-                out_layer=input2_2_,
+                in_features=feature_class,
+                out_layer=layer_name,
                 where_clause="",
                 workspace="",
                 field_info="",
             )
 
-        # Process: Select Layer By Attribute (4) (Select Layer By Attribute) (management)
-        if selected and selected_2_ and selected_3_:
-            print(f"{area}:  Second selection of polygons with Shape_Area <= 2 acres...")
-            selected_4_ = arcpy.management.SelectLayerByAttribute(
-                in_layer_or_view=input2_2_,
-                selection_type="NEW_SELECTION",
-                where_clause="Shape_Area <= 9000",
-                invert_where_clause="",
-            )
+        # Perform the eliminations by looping through the eliminations list
+        for size, iterations in eliminations:
+            print(f"{area}:  Eliminating polygons <= {size}m2 in {layer_name}...")
+            layer_name = process_layer(layer_name, size, iterations, scratch)
 
-        # Process: Eliminate (4) (Eliminate) (management)
-        out_name_ = rf"{workspace}\Out_{name}"
-        if selected and selected_2_ and selected_3_ and selected_4_:
-            print(f"{area}:  Second elimination of polygons with Shape_Area <= 2 acres...")
-            arcpy.management.Eliminate(
-                in_features=selected_4_,
-                out_feature_class=out_name_,
-                selection="LENGTH",
-                ex_where_clause="",
-                ex_features="",
-            )
+        # # First set of eliminations for polygons <= 0.25 acres (1 pixel)
+        # for iteration in range(1, 4):
+        #     layer_name = process_layer(layer_name, 1012, iteration, scratch, name)
+
+        # # Second set of eliminations for polygons <= 0.5 acres (2 pixels)
+        # for iteration in range(1, 3):
+        #     layer_name = process_layer(layer_name, 2024, iteration, scratch, name)
+
+        # # Third set of eliminations for polygons <= 1 acre
+        # layer_name = process_layer(layer_name, 4047, 1, scratch, name)
+
+        # # Fourth set of eliminations for polygons <= 2 acres
+        # layer_name = process_layer(layer_name, 9000, 2, scratch, name)
 
 
 # FeatureClassGenerator function used by CSBElimination arc toolbox
@@ -540,7 +490,7 @@ def main():
 
     # get number of CPUs to use for processing
     cpu_prct = float(cfg["global"]["cpu_prct"])
-    run_cpu = int(round(cpu_prct * os.cpu_count(), 0))
+    run_cpu = int(round(cpu_prct * os.cpu_count()))
     print(f"Using {run_cpu} CPUs for CSB processing...")
 
     # Create a list of arguments for each process
@@ -548,7 +498,7 @@ def main():
 
     # Create a pool of processes and submit each area for processing as a CPU is available
     with ProcessPoolExecutor(max_workers=run_cpu) as executor:
-        futures = {executor.submit(csb_process, *args): args for args in process_args}
+        futures = {executor.submit(process_csb, *args): args for args in process_args}
         completed = 0
         num_areas = len(futures)
         for future in as_completed(futures):
