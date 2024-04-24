@@ -34,9 +34,9 @@ def initialize_logger(creation_dir, area):
     """Initialize the logger for the CSB processing"""
     logging.basicConfig(
         filename=f"{creation_dir}/log/{area}.log",
-        level=logging.DEBUG,  # by default it only log warming or above
+        level=logging.DEBUG,
         format=LOG_FORMAT,
-        filemode="a",  # over write instead of appending
+        filemode="a",
     )
     return logging.getLogger()
 
@@ -64,6 +64,35 @@ def initialize_gdbs(creation_dir, gdb_name, area, logger, error_path):
         with open(error_path, "a") as f:
             f.write(str(e))
         sys.exit(0)
+
+def add_field(output_path, area, logger, error_path):
+    """Helper function to add field and handle errors"""
+    try:
+        arcpy.AddField_management(
+            in_table=output_path,
+            field_name="COUNT0",
+            field_type="SHORT",
+            field_precision="",
+            field_scale="",
+            field_length="",
+            field_alias="",
+            field_is_nullable="NON_NULLABLE",
+            field_is_required="NON_REQUIRED",
+            field_domain="",
+        )
+        column_list = [field.name for field in arcpy.ListFields(output_path)]  # type: ignore
+        return column_list
+
+    except Exception as e:
+        error_msg = e.args[0] if e.args else arcpy.GetMessage(0)
+        if not error_msg:
+            error_msg = "An unknown error occurred while adding the COUNT0 field"
+        logger.error(error_msg)
+        with open(error_path, "a") as f:
+            f.write(error_msg)  # type: ignore
+        print(f"{area}: trying to add field again...")
+        logger.info(f"{area}: trying to add field again...")
+        return None
 
 
 def process_csb(start_year, end_year, area, creation_dir):
@@ -98,67 +127,77 @@ def process_csb(start_year, end_year, area, creation_dir):
     logger.info(f"{area}: Combine Done, Adding Field")
 
     column_list = [field.name for field in arcpy.ListFields(output_path)]  # type: ignore
-    while "COUNT0" not in column_list:
-        try:
-            arcpy.AddField_management(
-                in_table=output_path,
-                field_name="COUNT0",
-                field_type="SHORT",
-                field_precision="",
-                field_scale="",
-                field_length="",
-                field_alias="",
-                field_is_nullable="NON_NULLABLE",
-                field_is_required="NON_REQUIRED",
-                field_domain="",
-            )
-            column_list = [field.name for field in arcpy.ListFields(output_path)]  # type: ignore
-
-        except Exception as e:
-            error_msg = e.args
-            logger.error(error_msg)
-            f = open(error_path, "a")
-            f.write("".join(str(item) for item in error_msg))
-            f.close()
-            time.sleep(2)
-            print(f"{area}: try again add field")
-            logger.info(f"{area}: try again add field")
-            arcpy.AddField_management(
-                in_table=output_path,
-                field_name="COUNT0",
-                field_type="SHORT",
-                field_precision="",
-                field_scale="",
-                field_length="",
-                field_alias="",
-                field_is_nullable="NON_NULLABLE",
-                field_is_required="NON_REQUIRED",
-                field_domain="",
-            )
+    attempt_count = 0
+    max_attempts = 5  # Set a limit to the number of attempts
+    while "COUNT0" not in column_list and attempt_count < max_attempts:
+        column_list = add_field(output_path, area, logger, error_path)
+        if column_list is None:
             column_list = [i.name for i in arcpy.ListFields(output_path)]  # type: ignore
+        attempt_count += 1
+    if attempt_count == max_attempts:
+        logger.error(f"Failed to add 'COUNT0' to the table after {attempt_count} attempts.")
 
-        except:
-            error_msg = arcpy.GetMessage(0)
-            logger.error(error_msg)
-            f = open(error_path, "a")
-            f.write("".join(str(item) for item in error_msg))  # type: ignore
-            f.close()
-            time.sleep(2)
-            print(f"{area}: try again add field")
-            logger.info(f"{area} try again add field")
-            arcpy.AddField_management(
-                in_table=output_path,
-                field_name="COUNT0",
-                field_type="SHORT",
-                field_precision="",
-                field_scale="",
-                field_length="",
-                field_alias="",
-                field_is_nullable="NON_NULLABLE",
-                field_is_required="NON_REQUIRED",
-                field_domain="",
-            )
-            column_list = [i.name for i in arcpy.ListFields(output_path)]  # type: ignore
+    # while "COUNT0" not in column_list:
+    #     try:
+    #         arcpy.AddField_management(
+    #             in_table=output_path,
+    #             field_name="COUNT0",
+    #             field_type="SHORT",
+    #             field_precision="",
+    #             field_scale="",
+    #             field_length="",
+    #             field_alias="",
+    #             field_is_nullable="NON_NULLABLE",
+    #             field_is_required="NON_REQUIRED",
+    #             field_domain="",
+    #         )
+    #         column_list = [field.name for field in arcpy.ListFields(output_path)]  # type: ignore
+
+    #     except Exception as e:
+    #         error_msg = e.args
+    #         logger.error(error_msg)
+    #         f = open(error_path, "a")
+    #         f.write("".join(str(item) for item in error_msg))
+    #         f.close()
+    #         time.sleep(2)
+    #         print(f"{area}: try again add field")
+    #         logger.info(f"{area}: try again add field")
+    #         arcpy.AddField_management(
+    #             in_table=output_path,
+    #             field_name="COUNT0",
+    #             field_type="SHORT",
+    #             field_precision="",
+    #             field_scale="",
+    #             field_length="",
+    #             field_alias="",
+    #             field_is_nullable="NON_NULLABLE",
+    #             field_is_required="NON_REQUIRED",
+    #             field_domain="",
+    #         )
+    #         column_list = [i.name for i in arcpy.ListFields(output_path)]  # type: ignore
+
+    #     except:
+    #         error_msg = arcpy.GetMessage(0)
+    #         logger.error(error_msg)
+    #         f = open(error_path, "a")
+    #         f.write("".join(str(item) for item in error_msg))  # type: ignore
+    #         f.close()
+    #         time.sleep(2)
+    #         print(f"{area}: try again add field")
+    #         logger.info(f"{area} try again add field")
+    #         arcpy.AddField_management(
+    #             in_table=output_path,
+    #             field_name="COUNT0",
+    #             field_type="SHORT",
+    #             field_precision="",
+    #             field_scale="",
+    #             field_length="",
+    #             field_alias="",
+    #             field_is_nullable="NON_NULLABLE",
+    #             field_is_required="NON_REQUIRED",
+    #             field_domain="",
+    #         )
+    #         column_list = [i.name for i in arcpy.ListFields(output_path)]  # type: ignore
 
     # generate experession string
     logger.info(f"{area}_{year}: Calculate Field")
@@ -295,6 +334,8 @@ def process_layer(layer_name, shape_area, iterations, scratch):
 
     try:
         new_layer_name = layer_name
+        if "_temp" in new_layer_name:
+            layer_name = new_layer_name[: new_layer_name.find("_temp")]
         for i in range(iterations):
             # Select CSB polygons that meet size criteria
             print(f"   Iteration {i + 1}:  Selecting polygons with Shape_Area <= {shape_area}m2...")
@@ -304,7 +345,7 @@ def process_layer(layer_name, shape_area, iterations, scratch):
                 where_clause=f"Shape_Area <= {shape_area}",
                 invert_where_clause="",
             )
-            poly_count = int(arcpy.management.GetCount(selected)[0])
+            poly_count = int(arcpy.management.GetCount(selected)[0])  # type: ignore
 
             # Eliminate selected CSB polygons that meet size criteria
             if poly_count > 0:
@@ -331,7 +372,8 @@ def process_layer(layer_name, shape_area, iterations, scratch):
                         field_info="",
                     )
             else:
-                print(f"   Iteration {i + 1} No polygons <= {shape_area}m2 selected, skipping to next size...")
+                print(f"   Iteration {i + 1}:  No polygons <= {shape_area}m2 selected, skipping to next Shape_Area...")
+                break
 
         return new_layer_name
 
@@ -340,7 +382,6 @@ def process_layer(layer_name, shape_area, iterations, scratch):
         return None
 
 
-# ArcGIS toolbox code that performs polygon elimination
 def csb_elimination(input_layers, workspace, scratch, area):
     """Performs polygon elimination on input layers"""
     # To allow overwriting outputs change overwriteOutput option to True.
@@ -349,8 +390,8 @@ def csb_elimination(input_layers, workspace, scratch, area):
     # Data structure that defines the eliminations to be performed
     # The first number is the area in square meters approximately equal to a specified acreage,
     # and the second number is the number of iterations to eliminate using the area
-    # For example, the first elimination of (1012, 3) will eliminate polygons <= 0.25 acres three times
-    # 0.25 acres, 0.50 acres, 1.00 acre, 2.00 acres
+    # For example, the first elimination of (1012, 3) will eliminate polygons <= 0.25 acres 3 times
+    # 0.22, 0.44, 0.67, 0.89, 1.11, 1.33, 1.56 acres
     eliminations = [(1000, 5), (1900, 5), (2800, 5), (3700, 5), (4600, 5), (5500, 5), (6500, 5)]
 
     print(f"{area}:  Starting Elimination")
@@ -370,25 +411,9 @@ def csb_elimination(input_layers, workspace, scratch, area):
             print(f"{area}:  Eliminating polygons <= {size}m2 in {layer_name}...")
             layer_name = process_layer(layer_name, size, iterations, scratch)
 
-        # # First set of eliminations for polygons <= 0.25 acres (1 pixel)
-        # for iteration in range(1, 4):
-        #     layer_name = process_layer(layer_name, 1012, iteration, scratch, name)
 
-        # # Second set of eliminations for polygons <= 0.5 acres (2 pixels)
-        # for iteration in range(1, 3):
-        #     layer_name = process_layer(layer_name, 2024, iteration, scratch, name)
-
-        # # Third set of eliminations for polygons <= 1 acre
-        # layer_name = process_layer(layer_name, 4047, 1, scratch, name)
-
-        # # Fourth set of eliminations for polygons <= 2 acres
-        # layer_name = process_layer(layer_name, 9000, 2, scratch, name)
-
-
-# FeatureClassGenerator function used by CSBElimination arc toolbox
 def FeatureClassGenerator(workspace, wild_card, feature_type, recursive):
     """Generator function that yields feature classes in a workspace
-    Used by CSBElimination Arc Toolbox
     Args:
         workspace (str): path to workspace
         wild_card (str): wildcard to filter feature classes
@@ -446,7 +471,7 @@ def sort_key(file_name: str) -> tuple[str, int]:
     """Splits file name into area and year parts, returns tuple for sorting
     Assumes the file name consists of one or more text characters followed by a 1-4 digit number
     """
-    num_part_start = re.search(r"\d", file_name).start()
+    num_part_start = re.search(r"\d", file_name).start()  # type: ignore
     return (file_name[:num_part_start], int(file_name[num_part_start:]))
 
 
@@ -490,7 +515,7 @@ def main():
 
     # get number of CPUs to use for processing
     cpu_prct = float(cfg["global"]["cpu_prct"])
-    run_cpu = int(round(cpu_prct * os.cpu_count()))
+    run_cpu = int(round(cpu_prct * os.cpu_count()))  # type: ignore
     print(f"Using {run_cpu} CPUs for CSB processing...")
 
     # Create a list of arguments for each process
