@@ -269,6 +269,7 @@ def process_csb(start_year, end_year, area, creation_dir):
                     workspace=f"{creation_dir}/Vectors_Out/{area}_{start_year}-{end_year}_OUT.gdb",
                     scratch=f"{creation_dir}/Vectors_temp/{area}_{start_year}-{end_year}_temp.gdb",
                     area=f"{area}",
+                    logger=logger,
                 )
             eliminate_success = True
 
@@ -315,7 +316,7 @@ def process_csb(start_year, end_year, area, creation_dir):
     return f"Finished {area}"
 
 
-def process_layer(layer_name, shape_area, iterations, scratch):
+def process_layer(layer_name, shape_area, scratch, logger):
     """Selects polygons <= shape_area, performs an elimination,
     and creates a new feature layer returning the layer name"""
 
@@ -323,21 +324,27 @@ def process_layer(layer_name, shape_area, iterations, scratch):
         new_layer_name = layer_name
         if "_temp" in new_layer_name:
             layer_name = new_layer_name[: new_layer_name.find("_temp")]
-        for i in range(iterations):
+
+        i = 0
+        done = False
+        while not done:
+            i += 1
             # Select CSB polygons that meet size criteria
-            print(f"   Iteration {i + 1}:  Selecting polygons with Shape_Area <= {shape_area}m2...")
+            logger.debug("   Iteration %s:  Selecting polygons with Shape_Area <= %s m2...", i, shape_area)
+            # print(f"   Iteration {i}:  Selecting polygons with Shape_Area <= {shape_area}m2...")
             selected = arcpy.management.SelectLayerByAttribute(
                 in_layer_or_view=new_layer_name,
                 selection_type="NEW_SELECTION",
                 where_clause=f"Shape_Area <= {shape_area}",
                 invert_where_clause="",
             )
-            poly_count = int(arcpy.management.GetCount(selected)[0])  # type: ignore
 
-            # Eliminate selected CSB polygons that meet size criteria
+            poly_count = int(arcpy.management.GetCount(selected)[0])  # type: ignore
             if poly_count > 0:
-                print(f"   Iteration {i + 1}:  Eliminating {poly_count} polygons...")
-                temp_name = rf"{scratch}\{layer_name}_temp_{shape_area}_{i + 1}"
+                # Eliminate selected CSB polygons that meet size criteria
+                logger.debug("   Iteration %s:  Eliminating %s polygons...", i, poly_count)
+                # print(f"   Iteration {i}:  Eliminating {poly_count} polygons...")
+                temp_name = rf"{scratch}\{layer_name}_temp_{shape_area}_{i}"
                 with arcpy.EnvManager(outputCoordinateSystem=OUTPUT_COORDINATE_SYSTEM_2_):
                     arcpy.management.Eliminate(
                         in_features=selected,
@@ -349,7 +356,8 @@ def process_layer(layer_name, shape_area, iterations, scratch):
 
                 # Make a new feature layer from the result
                 new_layer_name = f"{layer_name}_temp{i}_Layer"
-                print(f"   Iteration {i + 1}:  Creating new intermediate feature layer {new_layer_name}...")
+                logger.debug("   Iteration %s:  Creating new intermediate feature layer %s...", i, new_layer_name)
+                # print(f"   Iteration {i}:  Creating new intermediate feature layer {new_layer_name}...")
                 with arcpy.EnvManager(outputCoordinateSystem=OUTPUT_COORDINATE_SYSTEM_2_):
                     arcpy.management.MakeFeatureLayer(
                         in_features=temp_name,
@@ -359,8 +367,8 @@ def process_layer(layer_name, shape_area, iterations, scratch):
                         field_info="",
                     )
             else:
-                print(f"   Iteration {i + 1}:  No polygons <= {shape_area}m2 selected, skipping to next Shape_Area...")
-                break
+                print(f"   Iteration {i}:  No polygons <= {shape_area}m2 selected, skipping to next Shape_Area...")
+                done = True
 
         return new_layer_name
 
@@ -369,7 +377,7 @@ def process_layer(layer_name, shape_area, iterations, scratch):
         return None
 
 
-def csb_elimination(input_layers, workspace, scratch, area):
+def csb_elimination(input_layers, workspace, scratch, area, logger):
     """Performs polygon elimination on input layers"""
     # To allow overwriting outputs change overwriteOutput option to True.
     arcpy.env.overwriteOutput = True
@@ -379,9 +387,10 @@ def csb_elimination(input_layers, workspace, scratch, area):
     # and the second number is the number of iterations to eliminate using the area
     # For example, the first elimination of (1012, 3) will eliminate polygons <= 0.25 acres 3 times
     # 0.22, 0.44, 0.67, 0.89, 1.11, 1.33, 1.56 acres
-    eliminations = [(1000, 5), (1900, 5), (2800, 5), (3700, 5), (4600, 5), (5500, 5), (6500, 5)]
+    eliminations = [1000, 1900, 2800, 3700, 4600, 5500, 6500]
 
-    print(f"{area}:  Starting Elimination")
+    # print(f"{area}:  Starting Elimination")
+    logger.info("%s:  Starting Elimination", area)
 
     for feature_class, layer_name in FeatureClassGenerator(input_layers, "", "POLYGON", "NOT_RECURSIVE"):
         with arcpy.EnvManager(outputCoordinateSystem=OUTPUT_COORDINATE_SYSTEM_2_):
@@ -394,9 +403,10 @@ def csb_elimination(input_layers, workspace, scratch, area):
             )
 
         # Perform the eliminations by looping through the eliminations list
-        for size, iterations in eliminations:
-            print(f"{area}:  Eliminating polygons <= {size}m2 in {layer_name}...")
-            layer_name = process_layer(layer_name, size, iterations, scratch)
+        for size in eliminations:
+            logger.info("%s:  Eliminating polygons <= %s m2 in %s...", area, size, layer_name)
+            # print(f"{area}:  Eliminating polygons <= {size}m2 in {layer_name}...")
+            layer_name = process_layer(layer_name, size, scratch, logger)
 
 
 def FeatureClassGenerator(workspace, wild_card, feature_type, recursive):
