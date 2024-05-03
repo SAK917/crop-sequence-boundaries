@@ -19,6 +19,7 @@ import numpy as np
 
 # CSB-Run utility functions
 from logger import initialize_logger
+from gdb import initialize_gdbs, add_field
 import utils
 
 # projection
@@ -26,61 +27,6 @@ COORDINATE_STRING = r'PROJCS["USA_Contiguous_Albers_Equal_Area_Conic_USGS_versio
 
 # projection for elimination
 OUTPUT_COORDINATE_SYSTEM_2_ = 'PROJCS["Albers_Conic_Equal_Area",GEOGCS["GCS_North_American_1983",DATUM["D_North_American_1983",SPHEROID["GRS_1980",6378137.0,298.257222101]],PRIMEM["Greenwich",0.0],UNIT["Degree",0.0174532925199433]],PROJECTION["Albers"],PARAMETER["false_easting",0.0],PARAMETER["false_northing",0.0],PARAMETER["central_meridian",-96.0],PARAMETER["standard_parallel_1",29.5],PARAMETER["standard_parallel_2",45.5],PARAMETER["latitude_of_origin",23.0],UNIT["Meter",1.0]]'
-
-
-def create_gdb(out_folder_path, out_name):
-    """Create a file geodatabase"""
-    arcpy.CreateFileGDB_management(
-        out_folder_path=out_folder_path,
-        out_name=out_name,
-        out_version="CURRENT",
-    )
-
-
-def initialize_gdbs(creation_dir, gdb_name, area, logger, error_path):
-    """Initialize the file geodatabases for the CSB processing"""
-    try:
-        # print(f"{area}: Creating GDBs")
-        logger.info("%s:  Creating GDBs", area)
-        create_gdb(f"{creation_dir}/Vectors_LL", f"{gdb_name}.gdb")
-        create_gdb(f"{creation_dir}/Vectors_Out", f"{gdb_name}_OUT.gdb")
-        create_gdb(f"{creation_dir}/Vectors_temp", f"{gdb_name}_temp.gdb")
-        create_gdb(f"{creation_dir}/Vectors_In", f"{gdb_name}_In.gdb")
-    except Exception as e:
-        logger.exception("%s: An error occurred while creating the GDBs", area)
-        with open(error_path, "a") as f:
-            f.write(str(e))
-        sys.exit(0)
-
-
-def add_field(output_path, area, logger, error_path):
-    """Helper function to add field and handle errors"""
-    try:
-        arcpy.AddField_management(
-            in_table=output_path,
-            field_name="COUNT0",
-            field_type="SHORT",
-            field_precision="",
-            field_scale="",
-            field_length="",
-            field_alias="",
-            field_is_nullable="NON_NULLABLE",
-            field_is_required="NON_REQUIRED",
-            field_domain="",
-        )
-        column_list = [field.name for field in arcpy.ListFields(output_path)]  # type: ignore
-        return column_list
-
-    except Exception as e:
-        error_msg = e.args[0] if e.args else arcpy.GetMessage(0)
-        if not error_msg:
-            error_msg = "An unknown error occurred while adding the COUNT0 field"
-        logger.error(error_msg)
-        with open(error_path, "a") as f:
-            f.write(error_msg)  # type: ignore
-        print(f"{area}: trying to add field again...")
-        logger.info(f"{area}: trying to add field again...")
-        return None
 
 
 def process_csb(start_year, end_year, area, creation_dir):
@@ -114,6 +60,7 @@ def process_csb(start_year, end_year, area, creation_dir):
     arcpy.gp.Combine_sa(year_file_lst, output_path)  # type: ignore
     logger.info("%s:  Combine done, adding field for Year count...", area)
 
+    # TODO: Check to see if we really need to repeat attempts or if this is a figment of the original cloud processing
     column_list = [field.name for field in arcpy.ListFields(output_path)]  # type: ignore
     attempt_count = 0
     max_attempts = 5  # Set a limit to the number of attempts
@@ -124,68 +71,6 @@ def process_csb(start_year, end_year, area, creation_dir):
         attempt_count += 1
     if attempt_count == max_attempts:
         logger.error("%s:  Failed to add 'COUNT0' to the table after %s attempts.", area, attempt_count)
-
-    # while "COUNT0" not in column_list:
-    #     try:
-    #         arcpy.AddField_management(
-    #             in_table=output_path,
-    #             field_name="COUNT0",
-    #             field_type="SHORT",
-    #             field_precision="",
-    #             field_scale="",
-    #             field_length="",
-    #             field_alias="",
-    #             field_is_nullable="NON_NULLABLE",
-    #             field_is_required="NON_REQUIRED",
-    #             field_domain="",
-    #         )
-    #         column_list = [field.name for field in arcpy.ListFields(output_path)]  # type: ignore
-
-    #     except Exception as e:
-    #         error_msg = e.args
-    #         logger.error(error_msg)
-    #         f = open(error_path, "a")
-    #         f.write("".join(str(item) for item in error_msg))
-    #         f.close()
-    #         time.sleep(2)
-    #         print(f"{area}: try again add field")
-    #         logger.info(f"{area}: try again add field")
-    #         arcpy.AddField_management(
-    #             in_table=output_path,
-    #             field_name="COUNT0",
-    #             field_type="SHORT",
-    #             field_precision="",
-    #             field_scale="",
-    #             field_length="",
-    #             field_alias="",
-    #             field_is_nullable="NON_NULLABLE",
-    #             field_is_required="NON_REQUIRED",
-    #             field_domain="",
-    #         )
-    #         column_list = [i.name for i in arcpy.ListFields(output_path)]  # type: ignore
-
-    #     except:
-    #         error_msg = arcpy.GetMessage(0)
-    #         logger.error(error_msg)
-    #         f = open(error_path, "a")
-    #         f.write("".join(str(item) for item in error_msg))  # type: ignore
-    #         f.close()
-    #         time.sleep(2)
-    #         print(f"{area}: try again add field")
-    #         logger.info(f"{area} try again add field")
-    #         arcpy.AddField_management(
-    #             in_table=output_path,
-    #             field_name="COUNT0",
-    #             field_type="SHORT",
-    #             field_precision="",
-    #             field_scale="",
-    #             field_length="",
-    #             field_alias="",
-    #             field_is_nullable="NON_NULLABLE",
-    #             field_is_required="NON_REQUIRED",
-    #             field_domain="",
-    #         )
-    #         column_list = [i.name for i in arcpy.ListFields(output_path)]  # type: ignore
 
     # generate experession string
     logger.info("%s:  Calculating polygon year counts...", area)
@@ -483,6 +368,10 @@ def parse_arguments():
 
 
 def main():
+    """Create CSB polygons from source CDL data
+    User specifies the start and end years to use
+    NOTE: Source CDL data for the years specified must be present
+    """
     # command line inputs passed by CSB-Run
     # start_year (int): Start year for CSB being generated
     # end_year (int): End year for CSB being generated
