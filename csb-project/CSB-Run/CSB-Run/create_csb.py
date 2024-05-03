@@ -36,7 +36,7 @@ def process_csb(start_year, end_year, area, creation_dir):
     error_path = f"{creation_dir}/log/overall_error.txt"
 
     # Load configuration settings
-    cfg = utils.GetConfig("default")
+    cfg = utils.get_config("default")
 
     t0 = time.perf_counter()
     # Set up list of years covered in history
@@ -325,7 +325,7 @@ def main():
 
     # Get Creation and Split_raster paths from csb-default.ini
     # TODO: change to use user specified config file
-    cfg = utils.GetConfig("default")
+    cfg = utils.get_config("default")
     split_rasters = f'{cfg["folders"]["split_rasters"]}'
     print(f"Split raster folder: {split_rasters}")
     # logger.debug("Split raster folder: %s", split_rasters)

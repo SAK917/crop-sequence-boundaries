@@ -1,41 +1,39 @@
+"""
+Configuration and initialization
+"""
+
 import shutil
 import os
-import sys
 from configparser import ConfigParser, ExtendedInterpolation
-import multiprocessing
 import datetime as dt
 
 
-# get arguments from sys.arg in CSB-Run.py
-def GetArgs(sys_argv):
+def get_args(sys_argv):
+    """Get arguments from sys.argv in CSB-Run.py"""
     # need minimum number of arguments
     if len(sys_argv) < 4:
-        print(f"Missing arguments. Please provide <workflow> <startYear> <endYear>")
+        print("Missing arguments. Please provide <workflow> <startYear> <endYear>")
         print("Or for partial run <workflow>_partial <directory> <area>")
         # logging
     else:
         # get command line arguments
         workflow = sys_argv[1]
-
-        batchSize = None
-        configFile = None
+        batch_size = None
+        config_file = None
 
         # get that partial run fun
         if workflow == "create_partial":
             directory = sys_argv[2]
             area = sys_argv[3]
-
-            return workflow, directory, area, batchSize, configFile
-
+            return workflow, directory, area, batch_size, config_file
         else:
-            startYear = sys_argv[2]
-            endYear = sys_argv[3]
+            start_year = sys_argv[2]
+            end_year = sys_argv[3]
+            return workflow, start_year, end_year, batch_size, config_file
 
-            return workflow, startYear, endYear, batchSize, configFile
 
-
-# get CSB-Run configuration file, will choose default if none provided
-def GetConfig(config_arg):
+def get_config(config_arg):
+    """Get the configuration file name or return default name 'csb_default.ini' if none provided"""
     config_dir = f"{os.getcwd()}\\config"
 
     if config_arg == "default":
@@ -50,7 +48,9 @@ def GetConfig(config_arg):
     return config
 
 
-def SetRunParams(config, args):
+def set_run_params(config, args):
+    """Set the run parameters based on command line and config file"""
+
     # ArcGIS python version
     arcgis_env = config["global"]["python_env"]
     print(f"Python env: {arcgis_env}")
@@ -63,9 +63,9 @@ def SetRunParams(config, args):
 
     # make path to CSB workflow data folder
     scripts = {
-        "create": "CSB-create.py",
-        "prep": "CSB-prep.py",
-        "distribute": "CSB-distribute.py",
+        "create": "create_csb.py",
+        "prep": "prep_csb.py",
+        "distribute": "distribute_csb.py",
         "create_partial": "CSB-create_partial.py",
     }
     workflow = args[0]
@@ -75,7 +75,7 @@ def SetRunParams(config, args):
     run_date = dt.datetime.today().strftime("%Y%m%d")
     runname = f"{runname_params}_{run_date}_"
 
-    #TODO:  This is a hack to do variable substitution in the config file.
+    # TODO:  This is a hack to do variable substitution in the config file.
     #       It should be done automagically by the parser using
     #       configparser.ExtendedInterpolation
     try:
@@ -85,7 +85,7 @@ def SetRunParams(config, args):
         if workflow == "create_partial":
             creation_dir = config["create"]["create_folder"]
         else:
-            creation_dir = config["prep"][f"prep_folder"]
+            creation_dir = config["prep"]["prep_folder"]
             creation_dir = creation_dir.replace("<runname>", runname)
 
     creation_dir = creation_dir.replace("<data>", data_dir)
@@ -100,8 +100,9 @@ def SetRunParams(config, args):
     return arcgis_env, script, creation_dir, partial_area
 
 
-# function that builds folders for a CSB run
-def BuildFolders(creation_dir, workflow):
+def build_folders(creation_dir, workflow):
+    """Create processing folders required for the CSB run using config file specified root folders"""
+
     creation_folders = [
         "Combine",
         "CombineAll",
@@ -184,10 +185,10 @@ def BuildFolders(creation_dir, workflow):
     return run_dir
 
 
-# This function determines which creation run folder to use for given
-# csb prep params
-def GetRunFolder(workflow, start_year, end_year):
-    cfg = GetConfig("default")
+def get_run_folder(workflow, start_year, end_year):
+    """Determine which creation run folder to use for given CSB prep parameters"""
+
+    cfg = get_config("default")
     data_path = f"{cfg['folders']['data']}/v{cfg['global']['version']}"
 
     if workflow == "prep":
@@ -218,7 +219,9 @@ def GetRunFolder(workflow, start_year, end_year):
         quit()
 
 
-def DeletusGDBus(area, directory):
+def delete_gdbs(area, directory):
+    """Delete folders and GDBs for a specified processing subunit"""
+
     # relevant folders are in create directory currently
     creation_folders = ["Combine", "CombineAll", "Merge", "Vectors_In", "Vectors_LL", "Vectors_Out", "Vectors_temp"]
 
@@ -235,11 +238,12 @@ def DeletusGDBus(area, directory):
 
 
 # determine multiprocessing batch size
-def GetBatch(workflow, batch_size):
-    # needs work, set to defaults currently
-    cpu_count = multiprocessing.cpu_count()
-    cfg = GetConfig("default")
-    cpu_perc = cfg["global"]["cpu_perc"]
-    run_cpu = int(round(cpu_perc * cpu_count, 0))
-    # print(run_cpu)
-    return run_cpu
+# TODO: Eliminate this function as not needed with now multiprocessing algorithm
+# def GetBatch(workflow, batch_size):
+#     # needs work, set to defaults currently
+#     cpu_count = multiprocessing.cpu_count()
+#     cfg = GetConfig("default")
+#     cpu_perc = cfg["global"]["cpu_perc"]
+#     run_cpu = int(round(cpu_perc * cpu_count, 0))
+#     # print(run_cpu)
+#     return run_cpu
