@@ -38,7 +38,7 @@ def process_csb(start_year, end_year, area, creation_dir):
     cfg = utils.get_config("default")
 
     t0 = time.perf_counter()
-    logger.info("%s:  Initializing CSB processing for %s-%s", area, start_year, end_year)
+    logger.info("%s:  Initializing CSB processing (%s-%s)", area, start_year, end_year)
     # Set up list of years covered in history
     year_lst = []
     for year in range(int(start_year), int(end_year) + 1):
@@ -53,16 +53,16 @@ def process_csb(start_year, end_year, area, creation_dir):
     gdb_name = f"{area}_{str(start_year)}-{str(end_year)}"
     initialize_gdbs(creation_dir, gdb_name, area, logger, error_path)
 
-    logger.debug("%s:  Starting Combine...", area)
+    logger.debug("%s:  Generating unique sequences (combine)...", area)
     output_path = f"{creation_dir}/CombineALL/{area}_{start_year}-{end_year}.tif"
     arcpy.gp.Combine_sa(year_file_lst, output_path)  # type: ignore
-    logger.debug("%s:  Combine done, adding field for Year count...", area)
 
     # TODO: Check to see if we really need to repeat attempts or if this is a figment of the original cloud processing
     column_list = [field.name for field in arcpy.ListFields(output_path)]  # type: ignore
     attempt_count = 0
     max_attempts = 5  # Set a limit to the number of attempts
     while "COUNT0" not in column_list and attempt_count < max_attempts:
+        logger.debug("%s:  Adding field for Year count...", area)
         column_list = add_field(output_path, area, logger, error_path)
         if column_list is None:
             column_list = [i.name for i in arcpy.ListFields(output_path)]  # type: ignore
