@@ -9,11 +9,12 @@ By default:
 
 import logging
 
-LOG_FORMAT = "%(levelname)s %(asctime)s - %(message)s"
+CONSOLE_LOG_FORMAT = "%(message)s"
+FILE_LOG_FORMAT = "%(levelname)-8s %(asctime)s - %(message)s"
 
 
 def initialize_logger(creation_dir: str, area: str) -> logging.Logger:
-    """Initialize the logger for the CSB processing"""
+    """Initialize the logger for CSB processing"""
     # Create a logger
     logger = logging.getLogger()
     logger.setLevel(logging.DEBUG)
@@ -21,13 +22,13 @@ def initialize_logger(creation_dir: str, area: str) -> logging.Logger:
     # Create a handler for the console output with level INFO
     console_handler = logging.StreamHandler()
     console_handler.setLevel(logging.INFO)
-    console_handler.setFormatter(logging.Formatter(LOG_FORMAT))
+    console_handler.setFormatter(logging.Formatter(CONSOLE_LOG_FORMAT))
     logger.addHandler(console_handler)
 
     # Create a handler for the file output with level DEBUG
     file_handler = logging.FileHandler(f"{creation_dir}/log/{area}.log")
     file_handler.setLevel(logging.DEBUG)
-    file_handler.setFormatter(logging.Formatter(LOG_FORMAT))
+    file_handler.setFormatter(logging.Formatter(FILE_LOG_FORMAT, datefmt="%Y%m%d %H:%M:%S"))
     logger.addHandler(file_handler)
 
     return logger

@@ -23,7 +23,7 @@ def initialize_gdbs(creation_dir: str, gdb_name: str, area: str, logger, error_p
     """Initialize the file geodatabases for the CSB processing"""
     try:
         # print(f"{area}: Creating GDBs")
-        logger.info("%s:  Creating GDBs", area)
+        logger.debug("%s:  Creating GDBs...", area)
         create_gdb(f"{creation_dir}/Vectors_LL", f"{gdb_name}.gdb")
         create_gdb(f"{creation_dir}/Vectors_Out", f"{gdb_name}_OUT.gdb")
         create_gdb(f"{creation_dir}/Vectors_temp", f"{gdb_name}_temp.gdb")
