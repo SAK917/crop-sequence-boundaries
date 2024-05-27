@@ -25,4 +25,4 @@ run_dir = utils.build_folders(creation_dir, args[0])
 
 # run the CSB workflow script
 # args[1] = startYear, args[2] = endYear
-p = subprocess.run([python_path, script, args[1], args[2], run_dir, str(partial)])
+p = subprocess.run([python_path, script, args[1], args[2], run_dir, str(partial)], check=False)
