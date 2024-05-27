@@ -3,7 +3,8 @@ csb_create.py
 """
 
 import argparse
-from concurrent.futures import ProcessPoolExecutor, as_completed
+from concurrent.futures import ProcessPoolExecutor, wait, FIRST_COMPLETED
+import math
 from os import cpu_count
 from pathlib import Path
 import re
@@ -13,8 +14,6 @@ import time
 import arcpy
 import arcpy.management
 import arcpy.sa
-from numpy import unique
-
 
 # CSB-Run utility functions
 from logger import initialize_logger
@@ -39,6 +38,7 @@ def process_csb(start_year, end_year, area, creation_dir):
     cfg = utils.get_config("default")
 
     t0 = time.perf_counter()
+    logger.info("%s:  Initializing CSB processing for %s-%s", area, start_year, end_year)
     # Set up list of years covered in history
     year_lst = []
     for year in range(int(start_year), int(end_year) + 1):
@@ -53,11 +53,10 @@ def process_csb(start_year, end_year, area, creation_dir):
     gdb_name = f"{area}_{str(start_year)}-{str(end_year)}"
     initialize_gdbs(creation_dir, gdb_name, area, logger, error_path)
 
-    # print(f"{area}: Start Combine")
-    logger.info("%s:  Starting Combine...", area)
+    logger.debug("%s:  Starting Combine...", area)
     output_path = f"{creation_dir}/CombineALL/{area}_{start_year}-{end_year}.tif"
     arcpy.gp.Combine_sa(year_file_lst, output_path)  # type: ignore
-    logger.info("%s:  Combine done, adding field for Year count...", area)
+    logger.debug("%s:  Combine done, adding field for Year count...", area)
 
     # TODO: Check to see if we really need to repeat attempts or if this is a figment of the original cloud processing
     column_list = [field.name for field in arcpy.ListFields(output_path)]  # type: ignore
@@ -72,7 +71,7 @@ def process_csb(start_year, end_year, area, creation_dir):
         logger.error("%s:  Failed to add 'COUNT0' to the table after %s attempts.", area, attempt_count)
 
     # generate experession string
-    logger.info("%s:  Calculating polygon year counts...", area)
+    logger.debug("%s:  Calculating polygon year counts...", area)
     calculate_field_lst = [r"!" + f"{area}_{year}"[0:10] + r"!" for year in year_lst]
     # TODO: switch previous line to the following line
     # calculate_field_lst = [f"!{area[:5]}_{year}!" for year in year_lst]
@@ -104,13 +103,11 @@ def process_csb(start_year, end_year, area, creation_dir):
 
     # Start SetNull
     logger.info("%s:  Creating Null mask for pixels with < 1.1 years of data...", area)
-    # print(f"{area}: Creating Null mask for pixels with < 1.1 years of data...")
     setnull_path = f"{creation_dir}/Combine/{area}_{start_year}-{end_year}_NULL.tif"
     arcpy.gp.SetNull_sa(output_path, output_path, setnull_path, '"COUNT0" < 1.1')  # type: ignore
 
     # Convert Raster to Vector
     logger.info("%s:  Converting raster to vector polygons...", area)
-    # print(f"{area}: Converting raster to vector polygons...")
     out_feature_ll = f"{creation_dir}/Vectors_LL/{area}_{start_year}-{end_year}.gdb/{area}_{year}_In"
     arcpy.RasterToPolygon_conversion(
         in_raster=setnull_path,
@@ -121,8 +118,7 @@ def process_csb(start_year, end_year, area, creation_dir):
         max_vertices_per_feature="",
     )
 
-    logger.info("%s:  Projecting vector polygons to Albers projection...", area)
-    # print(f"{area}: Projecting vector polygons to Albers projection...")
+    logger.debug("%s:  Projecting vector polygons to Albers projection...", area)
     out_feature_in = f"{creation_dir}/Vectors_In/{area}_{start_year}-{end_year}_In.gdb/{area}_{year}_In"
     arcpy.management.Project(
         in_dataset=out_feature_ll,
@@ -136,13 +132,10 @@ def process_csb(start_year, end_year, area, creation_dir):
     )
 
     t1 = time.perf_counter()
-    # print(f"Time to finish all the steps before Elimination for {area}: {round((t1 - t0) / 60, 2)} minutes")
-    logger.info("%s:  Pre-processing completed in %s minutes", area, round((t1 - t0) / 60, 2))
+    logger.debug("%s:  Pre-processing completed in %s minutes", area, round((t1 - t0) / 60, 2))
 
     eliminate_success = False
     while not eliminate_success:
-        # print(f"{area}: Running Elimination...")
-        logger.info("%s:  Running Elimination...", area)
         try:
             with arcpy.EnvManager(
                 scratchWorkspace=f"{creation_dir}/Vectors_temp/{area}_{start_year}-{end_year}_temp.gdb",
@@ -181,57 +174,46 @@ def process_csb(start_year, end_year, area, creation_dir):
             sys.exit(0)
 
     t2 = time.perf_counter()
-    # print(f"Elimination for {area}: {round((t2 - t1) / 60, 2)} minutes")
     logger.info("%s:  Elimination completed in %s minutes", area, round((t2 - t1) / 60, 2))
-
-    # for item in range(len(file_lst)):
-    #     logger.info(f"{area}_{item}: Select analysis")
-    # TODO:  Remove this code block since no longer necessary with the new elimination process
-    # print(f"{area}: Selecting polygons with Shape_Area > 2 acres and saving to ShapeFile...")
-    # arcpy.Select_analysis(
-    #     in_features=f"{creation_dir}/Vectors_Out/{area}_{start_year}-{end_year}_OUT.gdb/Out_{area}_{year}_In",
-    #     out_feature_class=f"{creation_dir}/Vectors_Out/{area}_{year}_{start_year}_{end_year}_Out.shp",
-    #     where_clause="Shape_Area > 9000",
-    # )
-
     t3 = time.perf_counter()
-    # print(f"Total time for {area}: {round((t3 - t0) / 60, 2)} minutes")
     logger.info("%s:  CSB generated in %s minutes", area, round((t3 - t0) / 60, 2))
     return f"Finished {area}"
 
 
-def process_layer(layer_name, shape_area, scratch, logger):
+def process_layer(layer_name: str, last_iteration_name: str, shape_area: int, scratch: str, logger) -> str:
     """Selects polygons <= shape_area, performs an elimination,
     and creates a new feature layer returning the layer name"""
 
     try:
-        new_layer_name = layer_name
-        if "_temp" in new_layer_name:
-            layer_name = new_layer_name[: new_layer_name.find("_temp")]
+        if last_iteration_name:
+            new_layer_name = last_iteration_name
+        else:
+            new_layer_name = layer_name
 
-        i = 0
+        iteration = 0
+        previous_poly_count = math.inf
         done = False
         while not done:
-            i += 1
+            iteration += 1
             # Select CSB polygons that meet size criteria
-            logger.debug("   Iteration %s:  Selecting polygons with Shape_Area <= %s m2...", i, shape_area)
+            logger.debug("  Iteration %s: Selecting polygons with Shape_Area <= %sm2...", iteration, shape_area)
             # print(f"   Iteration {i}:  Selecting polygons with Shape_Area <= {shape_area}m2...")
-            selected = arcpy.management.SelectLayerByAttribute(
+            polys_to_eliminate = arcpy.management.SelectLayerByAttribute(
                 in_layer_or_view=new_layer_name,
                 selection_type="NEW_SELECTION",
                 where_clause=f"Shape_Area <= {shape_area}",
                 invert_where_clause="",
             )
+            poly_count = int(arcpy.management.GetCount(polys_to_eliminate)[0])  # type: ignore
 
-            poly_count = int(arcpy.management.GetCount(selected)[0])  # type: ignore
-            if poly_count > 0:
+            # if there are polygons that cannot be eliminated (i.e., previous_poly_count == poly_count), then done
+            if poly_count > 0 and (previous_poly_count > poly_count):
                 # Eliminate selected CSB polygons that meet size criteria
-                logger.debug("   Iteration %s:  Eliminating %s polygons...", i, poly_count)
-                # print(f"   Iteration {i}:  Eliminating {poly_count} polygons...")
-                temp_name = rf"{scratch}\{layer_name}_temp_{shape_area}_{i}"
+                logger.debug("  Iteration %s: Eliminating %s polygons...", iteration, poly_count)
+                temp_name = rf"{scratch}\{layer_name}_{shape_area}_{iteration}"
                 with arcpy.EnvManager(outputCoordinateSystem=OUTPUT_COORDINATE_SYSTEM_2_):
                     arcpy.management.Eliminate(
-                        in_features=selected,
+                        in_features=polys_to_eliminate,
                         out_feature_class=temp_name,
                         selection="LENGTH",
                         ex_where_clause="",
@@ -239,8 +221,8 @@ def process_layer(layer_name, shape_area, scratch, logger):
                     )
 
                 # Make a new feature layer from the result
-                new_layer_name = f"{layer_name}_temp{i}_Layer"
-                logger.debug("   Iteration %s:  Creating new intermediate feature layer %s...", i, new_layer_name)
+                new_layer_name = f"{layer_name}_{shape_area}_{iteration}_Layer"
+                logger.debug("  Iteration %s: Creating new intermediate feature layer %s...", iteration, new_layer_name)
                 # print(f"   Iteration {i}:  Creating new intermediate feature layer {new_layer_name}...")
                 with arcpy.EnvManager(outputCoordinateSystem=OUTPUT_COORDINATE_SYSTEM_2_):
                     arcpy.management.MakeFeatureLayer(
@@ -250,15 +232,17 @@ def process_layer(layer_name, shape_area, scratch, logger):
                         workspace="",
                         field_info="",
                     )
+                previous_poly_count = poly_count
             else:
-                print(f"   Iteration {i}:  No polygons <= {shape_area}m2 selected, skipping to next Shape_Area...")
+                logger.debug(
+                    "  Iteration %s: No polygons <= %sm2 selected, skipping to next Shape_Area.", iteration, shape_area
+                )
                 done = True
-
         return new_layer_name
 
     except Exception as e:
-        print(f"An error occurred during processing: {e}")
-        return None
+        logger.error(f"An error occurred while eliminating area {shape_area}, iteration #{iteration}: {e}")
+        return ""
 
 
 def csb_elimination(input_layers, workspace, scratch, area, logger):
@@ -266,15 +250,12 @@ def csb_elimination(input_layers, workspace, scratch, area, logger):
     # To allow overwriting outputs change overwriteOutput option to True.
     arcpy.env.overwriteOutput = True
 
-    # Data structure that defines the eliminations to be performed
-    # The first number is the area in square meters approximately equal to a specified acreage,
-    # and the second number is the number of iterations to eliminate using the area
-    # For example, the first elimination of (1012, 3) will eliminate polygons <= 0.25 acres 3 times
-    # 0.22, 0.44, 0.67, 0.89, 1.11, 1.33, 1.56 acres
-    elimination_areas = [1000, 1900, 2800, 3700, 4600, 5500, 6500]
-
-    # print(f"{area}:  Starting Elimination")
-    logger.info("%s:  Starting Elimination", area)
+    # List of the eliminations to be performed.  Each number is an area in square meters approximately
+    # equal to blocks of 1, 2, 3, etc. pixels in the source raster data, rounded up to the nearest
+    # 100 square meters to account for potential spatial inaccuracies in the raster to vector
+    # conversion.  The areas represent the following approximate acreages:
+    # 0.22, 0.44, 0.67, 0.89, 1.11, 1.33, 1.56 and 2.00 acres
+    elimination_areas = [1000, 1900, 2800, 3700, 4600, 5500, 6500, 8100]
 
     for feature_class, layer_name in feature_class_generator(input_layers, "", "POLYGON", "NOT_RECURSIVE"):
         with arcpy.EnvManager(outputCoordinateSystem=OUTPUT_COORDINATE_SYSTEM_2_):
@@ -287,10 +268,10 @@ def csb_elimination(input_layers, workspace, scratch, area, logger):
             )
 
         # Perform the eliminations by looping through the eliminations list
+        last_iteration_name = layer_name
         for size in elimination_areas:
-            logger.info("%s:  Eliminating polygons <= %s m2 in %s...", area, size, layer_name)
-            # print(f"{area}:  Eliminating polygons <= {size}m2 in {layer_name}...")
-            layer_name = process_layer(layer_name, size, scratch, logger)
+            logger.info("%s:  Eliminating polygons <= %sm2...", area, size)
+            last_iteration_name = process_layer(layer_name, last_iteration_name, size, scratch, logger)
 
 
 def sort_key(file_name: str) -> tuple[str, int]:
@@ -330,43 +311,38 @@ def main():
     print(f"Split raster folder: {split_rasters}")
     # logger.debug("Split raster folder: %s", split_rasters)
 
-    # get list of area files
+    # Create list of sub-units to process
     file_obj = Path(f"{split_rasters}/{args.start_year}/").rglob("*.tif")
     file_lst = [str(x).split(f"{args.start_year}")[1][1:-1] for x in file_obj]
+    # sort the list of sub-units numerically to facilitate progress tracking
     file_lst.sort(key=sort_key)
     print(f"{len(file_lst)} split raster files to process.")
 
-    # TODO: Delete this code block of no longer necessary (partial run functionality removed)
-    # delete old files from previous run if doing partial run
-    # if args.partial_area != "None":
-    #     file_lst = [x for x in file_lst if x == args.partial_area]
-    #     csb_yrs = args.creation_dir.split("_")[-3]
-    #     start_year = f"20{csb_yrs[0:2]}"
-    #     end_year = f"20{csb_yrs[2:5]}"
-    #     utils.DeletusGDBus(args.partial_area, args.creation_dir)
-
-    # get number of CPUs to use for processing
+    # Get number of CPUs to use for processing
     cpu_prct = float(cfg["global"]["cpu_prct"])
-    run_cpu = int(round(cpu_prct * cpu_count()))  # type: ignore
+    run_cpu = math.floor(cpu_prct * cpu_count())  # type: ignore
     print(f"Using {run_cpu} CPUs for CSB processing...")
 
     # Create a list of arguments for each process
-    process_args = [(args.start_year, args.end_year, area, args.creation_dir) for area in unique(file_lst)]
+    process_args = [(args.start_year, args.end_year, area, args.creation_dir) for area in file_lst]
 
-    # Create a pool of processes and submit each area for processing as a CPU is available
+    # Create a pool of processes and submit each sub-unit for processing as a CPU is available
     with ProcessPoolExecutor(max_workers=run_cpu) as executor:
-        futures = {executor.submit(process_csb, *args): args for args in process_args}
+        future_args = {executor.submit(process_csb, *args): args for args in process_args}
+        futures = set(future_args.keys())
         completed = 0
         num_areas = len(futures)
-        for future in as_completed(futures):
-            completed += 1
-            try:
-                result = future.result()
-                print(result)
-            except Exception as e:
-                area = futures[future][2]
-                print(f"CSB sub-unit {area} failed with error: {e}")
-            print(f"{completed} of {num_areas} processed ({100.0 * completed / num_areas:.1f}%)")
+        while futures:
+            done, futures = wait(futures, return_when=FIRST_COMPLETED)
+            for future in done:
+                completed += 1
+                try:
+                    result = future.result()
+                    print(result)
+                except Exception as e:
+                    area = future_args[future][2]
+                    print(f"CSB sub-unit {area} failed with error: {e}")
+                print(f"{completed} of {num_areas} processed ({100.0 * completed / num_areas:.1f}%)")
 
 
 if __name__ == "__main__":
