@@ -16,7 +16,7 @@ FILE_LOG_FORMAT = "%(levelname)-8s %(asctime)s - %(message)s"
 def initialize_logger(creation_dir: str, area: str) -> logging.Logger:
     """Initialize the logger for CSB processing"""
     # Create a logger
-    logger = logging.getLogger()
+    logger = logging.getLogger(area)
     logger.setLevel(logging.DEBUG)
 
     # Create a handler for the console output with level INFO
