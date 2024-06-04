@@ -175,7 +175,7 @@ def process_csb(start_year, end_year, area, creation_dir):
             sys.exit(0)
 
     t2 = time.perf_counter()
-    logger.info("%s:  Eliminations completed in %s minutes", area, round((t2 - t1) / 60, 2))
+    # logger.info("%s:  Eliminations completed in %s minutes", area, round((t2 - t1) / 60, 2))
     t3 = time.perf_counter()
     logger.info("%s:  CSB generated in %s minutes", area, round((t3 - t0) / 60, 2))
     return f"Finished {area}"
