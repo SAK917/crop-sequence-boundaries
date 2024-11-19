@@ -27,158 +27,18 @@ COORDINATE_STRING = r'PROJCS["USA_Contiguous_Albers_Equal_Area_Conic_USGS_versio
 OUTPUT_COORDINATE_SYSTEM_2_ = 'PROJCS["Albers_Conic_Equal_Area",GEOGCS["GCS_North_American_1983",DATUM["D_North_American_1983",SPHEROID["GRS_1980",6378137.0,298.257222101]],PRIMEM["Greenwich",0.0],UNIT["Degree",0.0174532925199433]],PROJECTION["Albers"],PARAMETER["false_easting",0.0],PARAMETER["false_northing",0.0],PARAMETER["central_meridian",-96.0],PARAMETER["standard_parallel_1",29.5],PARAMETER["standard_parallel_2",45.5],PARAMETER["latitude_of_origin",23.0],UNIT["Meter",1.0]]'
 
 
-def process_csb(start_year, end_year, area, creation_dir):
+def process_csb(config: ProcessingConfig) -> str:
     """Create a CSB dataset for the specified area and years"""
+    creation_dir = Path(config.creation_dir)
+    error_path = creation_dir / "log/overall_error.txt"
 
-    # Initialize logger in this functino so that each spawned process has its own logger
-    logger = initialize_logger(creation_dir, area)
-    error_path = f"{creation_dir}/log/overall_error.txt"
-
-    # Load configuration settings
-    cfg = utils.get_config("default")
-
-    t0 = time.perf_counter()
-    logger.info("%s:  Initializing CSB processing (%s-%s)", area, start_year, end_year)
-    # Set up list of years covered in history
-    year_lst = []
-    for year in range(int(start_year), int(end_year) + 1):
-        year_lst.append(year)
-
-    # get file name for same area across different years
-    year_file_lst = []
-    for year in year_lst:
-        file_path = f'{cfg["folders"]["split_rasters"]}/{year}/{area}_{year}.TIF'
-        year_file_lst.append(file_path)
-
-    gdb_name = f"{area}_{str(start_year)}-{str(end_year)}"
-    initialize_gdbs(creation_dir, gdb_name, area, logger, error_path)
-
-    logger.debug("%s:  Generating unique sequences (combine)...", area)
-    output_path = f"{creation_dir}/CombineALL/{area}_{start_year}-{end_year}.tif"
-    arcpy.gp.Combine_sa(year_file_lst, output_path)  # type: ignore
-
-    # TODO: Check to see if we really need to repeat attempts or if this is a figment of the original cloud processing
-    column_list = [field.name for field in arcpy.ListFields(output_path)]  # type: ignore
-    attempt_count = 0
-    max_attempts = 5  # Set a limit to the number of attempts
-    while "COUNT0" not in column_list and attempt_count < max_attempts:
-        logger.debug("%s:  Adding field for Year count...", area)
-        column_list = add_field(output_path, area, logger, error_path)
-        if column_list is None:
-            column_list = [i.name for i in arcpy.ListFields(output_path)]  # type: ignore
-        attempt_count += 1
-    if attempt_count == max_attempts:
-        logger.error("%s:  Failed to add 'COUNT0' to the table after %s attempts.", area, attempt_count)
-
-    # generate experession string
-    logger.debug("%s:  Calculating polygon year counts...", area)
-    calculate_field_lst = [r"!" + f"{area}_{year}"[0:10] + r"!" for year in year_lst]
-    # TODO: switch previous line to the following line
-    # calculate_field_lst = [f"!{area[:5]}_{year}!" for year in year_lst]
-    cal_expression = f"CountFieldsGreaterThanZero({calculate_field_lst})"
-    code = "def CountFieldsGreaterThanZero(fieldList):\n    counter = 0\n    for field in fieldList:\n        if int(field) > 0:\n            counter += 1\n    return counter"
+    processor = CSBProcessor(config, logger)
     try:
-        arcpy.CalculateField_management(
-            in_table=output_path,
-            field="COUNT0",
-            expression=cal_expression,
-            code_block=code,
-        )
+        processor.process()
+        return f"Finished {config.area}"
     except Exception as e:
-        error_msg = e.args
-        logger.error(error_msg)
-        f = open(error_path, "a")
-        f.write("".join(str(item) for item in error_msg))
-        f.write(r"/n")
-        f.close()
-        sys.exit(0)
-    except:
-        error_msg = arcpy.GetMessage(0)
-        logger.error(error_msg)
-        f = open(error_path, "a")
-        f.write("".join(str(item) for item in error_msg))  # type: ignore
-        f.write(r"/n")
-        f.close()
-        sys.exit(0)
-
-    # Start SetNull
-    logger.debug("%s:  Creating Null mask for pixels with < 1.1 years of data...", area)
-    setnull_path = f"{creation_dir}/Combine/{area}_{start_year}-{end_year}_NULL.tif"
-    arcpy.gp.SetNull_sa(output_path, output_path, setnull_path, '"COUNT0" < 1.1')  # type: ignore
-
-    # Convert Raster to Vector
-    logger.debug("%s:  Converting raster to vector polygons...", area)
-    out_feature_ll = f"{creation_dir}/Vectors_LL/{area}_{start_year}-{end_year}.gdb/{area}_{year}_In"
-    arcpy.RasterToPolygon_conversion(
-        in_raster=setnull_path,
-        out_polygon_features=out_feature_ll,
-        simplify="NO_SIMPLIFY",
-        raster_field="Value",
-        create_multipart_features="SINGLE_OUTER_PART",
-        max_vertices_per_feature="",
-    )
-
-    logger.debug("%s:  Projecting vector polygons to Albers projection...", area)
-    out_feature_in = f"{creation_dir}/Vectors_In/{area}_{start_year}-{end_year}_In.gdb/{area}_{year}_In"
-    arcpy.management.Project(
-        in_dataset=out_feature_ll,
-        out_dataset=out_feature_in,
-        out_coor_system=COORDINATE_STRING,
-        transform_method=[],
-        in_coor_system="",
-        preserve_shape="NO_PRESERVE_SHAPE",
-        max_deviation="",
-        vertical="NO_VERTICAL",
-    )
-
-    t1 = time.perf_counter()
-    logger.debug("%s:  Pre-processing completed in %s minutes", area, round((t1 - t0) / 60, 2))
-
-    eliminate_success = False
-    while not eliminate_success:
-        try:
-            with arcpy.EnvManager(
-                scratchWorkspace=f"{creation_dir}/Vectors_temp/{area}_{start_year}-{end_year}_temp.gdb",
-                workspace=f"{creation_dir}/Vectors_temp/{area}_{start_year}-{end_year}_temp.gdb",
-            ):
-                logger.info("%s:  Filtering (merging) polygons using Eliminate...", area)
-                csb_elimination(
-                    input_layers=f"{creation_dir}/Vectors_In/{area}_{start_year}-{end_year}_In.gdb",
-                    workspace=f"{creation_dir}/Vectors_Out/{area}_{start_year}-{end_year}_OUT.gdb",
-                    scratch=f"{creation_dir}/Vectors_temp/{area}_{start_year}-{end_year}_temp.gdb",
-                    area=f"{area}",
-                    logger=logger,
-                )
-            eliminate_success = True
-
-        except Exception as e:
-            error_msg = e.args
-            logger.error(error_msg)
-            print(f"{area}: {error_msg}")
-            f = open(error_path, "a")
-            f.write("".join(str(item) for item in error_msg))
-            f.write(r"/n")
-            f.close()
-            repair_topology(
-                f"{creation_dir}/Vectors_In/{area}_{start_year}-{end_year}_In.gdb",
-                f"{creation_dir}/Vectors_temp/{area}_{start_year}-{end_year}_temp.gdb",
-                area,
-                logger,
-            )
-        except:
-            error_msg = arcpy.GetMessage(0)
-            logger.error(error_msg)
-            f = open(error_path, "a")
-            f.write("".join(str(item) for item in error_msg))  # type: ignore
-            f.write(r"/n")
-            f.close()
-            sys.exit(0)
-
-    t2 = time.perf_counter()
-    # logger.info("%s:  Eliminations completed in %s minutes", area, round((t2 - t1) / 60, 2))
-    t3 = time.perf_counter()
-    logger.info("%s:  CSB generated in %s minutes", area, round((t3 - t0) / 60, 2))
-    return f"Finished {area}"
+        error_path.write_text(str(e))
+        raise ProcessingError(f"Failed to process {config.area}") from e
 
 
 def process_layer(layer_name: str, last_iteration_name: str, shape_area: int, scratch: str, logger) -> str:

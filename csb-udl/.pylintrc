@@ -1,0 +1,14 @@
+[MASTER]
+# Executes Python code before Pylint starts analyzing
+init-hook='import sys; sys.path.extend([".", "./CSB-Run/CSB-Run"])'
+# Tells Pylint to ignore CVS directories when scanning files
+ignore=CVS
+# Saves Pylint's state between runs for better performance
+persistent=yes
+# Specifies which Pylint plugins to load
+load-plugins=
+
+[MESSAGES CONTROL]
+# Disables specific warning categories
+# C0111: Missing docstring warning
+disable=

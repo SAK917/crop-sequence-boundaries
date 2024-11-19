@@ -1,0 +1,11 @@
+{
+    "include": [
+        "CSB-Run"
+    ],
+    "executionEnvironments": [
+        {
+            "root": "CSB-Run/CSB-Run",
+            "pythonVersion": "3.x"
+        }
+    ]
+}
